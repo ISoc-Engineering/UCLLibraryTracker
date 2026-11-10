@@ -3,7 +3,7 @@
 //   { libraryId, name, occupied, total, free }
 
 import { settings } from '../config/settings.js';
-import { fetchOccupancy as fetchUclapi } from './uclapiSource.js';
+import { fetchOccupancy as fetchScrape } from './scrapeSource.js';
 import { fetchOccupancy as fetchMock } from './mockSource.js';
 
 /**
@@ -12,8 +12,11 @@ import { fetchOccupancy as fetchMock } from './mockSource.js';
  */
 export async function fetchCurrentOccupancy() {
   switch (settings.dataSource) {
-    case 'uclapi':
-      return fetchUclapi({ token: settings.uclapiToken });
+    case 'scrape':
+      return fetchScrape({
+        apiKey: settings.scraperApiKey,
+        urlTemplate: settings.scraperUrlTemplate,
+      });
     case 'mock':
       return fetchMock();
     default:

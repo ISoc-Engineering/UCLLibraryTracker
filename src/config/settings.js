@@ -1,5 +1,5 @@
 // Central runtime configuration, driven by environment variables so the same
-// build runs in development (mock data) and production (live UCL API data)
+// build runs in development (mock data) and production (live scraped data)
 // without code changes.
 
 function intFromEnv(name, fallback) {
@@ -13,15 +13,20 @@ export const settings = {
   // HTTP port for the web server.
   port: intFromEnv('PORT', 3000),
 
-  // Which data source to use: 'uclapi' (live) or 'mock' (demo data).
-  // Defaults to 'uclapi' when a token is present, otherwise 'mock'.
+  // Which data source to use: 'scrape' (live) or 'mock' (demo data).
+  // Defaults to 'scrape' when a scraper provider is configured, else 'mock'.
   dataSource:
     process.env.DATA_SOURCE ||
-    (process.env.UCLAPI_TOKEN ? 'uclapi' : 'mock'),
+    (process.env.SCRAPER_URL_TEMPLATE ? 'scrape' : 'mock'),
 
-  // UCL API token (https://uclapi.com -> create an app). Only needed for the
-  // 'uclapi' source.
-  uclapiToken: process.env.UCLAPI_TOKEN || '',
+  // Scraping-provider config for the live 'scrape' source. The UCL feed is
+  // behind Cloudflare, so a managed scraping service is needed to fetch it.
+  //   SCRAPER_URL_TEMPLATE — provider request URL; use {url} for the (encoded)
+  //                          target feed URL and {key} for the API key.
+  //   SCRAPER_API_KEY      — provider API key.
+  // See .env.example / README for ready-made templates per provider.
+  scraperUrlTemplate: process.env.SCRAPER_URL_TEMPLATE || '',
+  scraperApiKey: process.env.SCRAPER_API_KEY || '',
 
   // How often to poll the data source and append a snapshot to history,
   // in milliseconds. Default: every 5 minutes.
