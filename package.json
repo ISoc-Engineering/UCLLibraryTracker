@@ -1,0 +1,19 @@
+{
+  "name": "ucl-library-tracker",
+  "version": "0.1.0",
+  "description": "Tracks UCL library occupancy, classifies each library R/A/G, logs history, and shows it on a map.",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "poll:once": "node src/scripts/pollOnce.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,5 @@
+node_modules/
+# Logged occupancy snapshots (generated at runtime). Keep the folder, ignore data.
+data/*.jsonl
+.env
+*.log

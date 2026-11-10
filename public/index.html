@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UCL Library Tracker</title>
+
+  <!-- Leaflet (OpenStreetMap) -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <!-- Chart.js for the busyness graph -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>UCL Library Tracker</h1>
+    <div class="legend">
+      <span class="chip green">Green &lt;60%</span>
+      <span class="chip amber">Amber 60–85%</span>
+      <span class="chip red">Red &gt;85%</span>
+    </div>
+    <div id="status" class="status"></div>
+  </header>
+
+  <main>
+    <section id="map" aria-label="Map of UCL libraries"></section>
+
+    <aside id="sidebar">
+      <h2>Libraries</h2>
+      <ul id="library-list"></ul>
+
+      <div id="chart-panel" hidden>
+        <h2 id="chart-title">Busyness today</h2>
+        <canvas id="busyness-chart" height="220"></canvas>
+        <p class="muted" id="chart-note"></p>
+      </div>
+    </aside>
+  </main>
+
+  <footer>
+    <p class="muted">
+      Student project — not an official UCL service. Occupancy data source:
+      <span id="source-name">…</span>.
+    </p>
+  </footer>
+
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  <script src="app.js"></script>
+</body>
+</html>
