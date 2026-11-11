@@ -36,14 +36,19 @@
     <aside id="sidebar">
       <h2>Libraries</h2>
       <ul id="library-list"></ul>
-
-      <div id="chart-panel" hidden>
-        <h2 id="chart-title">Busyness today</h2>
-        <canvas id="busyness-chart" height="220"></canvas>
-        <p class="muted" id="chart-note"></p>
-      </div>
     </aside>
   </main>
+
+  <!-- Busyness graph modal overlay -->
+  <div id="chart-overlay" class="overlay" hidden>
+    <div class="overlay-backdrop" data-close></div>
+    <div class="overlay-dialog" role="dialog" aria-modal="true" aria-labelledby="chart-title">
+      <button class="overlay-close" type="button" data-close aria-label="Close">&times;</button>
+      <h2 id="chart-title">Busyness today</h2>
+      <canvas id="busyness-chart" height="240"></canvas>
+      <p class="muted" id="chart-note"></p>
+    </div>
+  </div>
 
   <footer>
     <p class="muted">

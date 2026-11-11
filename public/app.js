@@ -136,11 +136,20 @@ function render(current, thresholds) {
   });
 }
 
+function closeChart() {
+  const overlay = document.getElementById('chart-overlay');
+  overlay.hidden = true;
+  if (chart) {
+    chart.destroy();
+    chart = null;
+  }
+}
+
 async function showChart(libraryId, name) {
-  const panel = document.getElementById('chart-panel');
+  const overlay = document.getElementById('chart-overlay');
   const title = document.getElementById('chart-title');
   const note = document.getElementById('chart-note');
-  panel.hidden = false;
+  overlay.hidden = false;
   title.textContent = `Busyness — ${name}`;
 
   const data = await getJSON(`/api/history?libraryId=${encodeURIComponent(libraryId)}&sinceHours=24`);
@@ -286,6 +295,14 @@ async function init() {
   const locateBtn = document.getElementById('locate-btn');
   if (locateBtn) locateBtn.addEventListener('click', locateUser);
 
+  // Chart overlay: close on backdrop/button click or Escape.
+  document.querySelectorAll('#chart-overlay [data-close]').forEach((el) => {
+    el.addEventListener('click', closeChart);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeChart();
+  });
+
   // Static metadata + markers
   const meta = await getJSON('/api/libraries');
   libraries = meta.libraries;
@@ -293,8 +310,8 @@ async function init() {
 
   libraries.forEach((lib) => {
     const m = L.circleMarker(lib.coords, {
-      radius: 15,
-      weight: 3,
+      radius: 12,
+      weight: 2.5,
       color: '#fff',
       fillColor: RAG_COLORS.unknown,
       fillOpacity: 0.95,

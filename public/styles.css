@@ -130,9 +130,52 @@ main {
 .bar.amber > span { background: var(--amber); }
 .bar.red > span { background: var(--red); }
 
-#chart-panel { margin-top: 1.25rem; border-top: 1px solid var(--border); padding-top: 1rem; }
-
 .muted { color: var(--muted); font-size: 0.78rem; }
+
+/* Busyness graph modal overlay */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+.overlay[hidden] { display: none; }
+
+.overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.overlay-dialog {
+  position: relative;
+  z-index: 1;
+  width: min(640px, 100%);
+  background: var(--panel);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  padding: 1.25rem 1.5rem 1rem;
+}
+.overlay-dialog h2 { margin: 0 2rem 0.75rem 0; font-size: 1rem; }
+.overlay-dialog canvas { width: 100% !important; }
+
+.overlay-close {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.75rem;
+  background: none;
+  border: none;
+  font-size: 1.6rem;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0.1rem 0.3rem;
+  border-radius: 6px;
+}
+.overlay-close:hover { background: var(--bg); color: var(--ink); }
 
 footer {
   padding: 0.5rem 1rem;
