@@ -8,6 +8,7 @@ import { dirname, join } from 'node:path';
 import { settings, RAG_THRESHOLDS } from './config/settings.js';
 import { LIBRARIES } from './config/libraries.js';
 import { readHistory, latestSnapshot } from './store/history.js';
+import { seedHistoryIfNeeded } from './store/seed.js';
 import {
   startPolling,
   pollOnce,
@@ -100,10 +101,27 @@ export function createServer() {
 // Only start listening when run directly (not when imported by tests/scripts).
 const isMain = process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1];
 if (isMain) {
-  app.listen(settings.port, () => {
+  app.listen(settings.port, async () => {
     console.log(
       `UCL Library Tracker listening on http://localhost:${settings.port} (source: ${activeSourceName()})`,
     );
+
+    // Populate demo history on boot so the busyness graph works immediately.
+    // On Render the disk is ephemeral, so this runs on every deploy/restart.
+    // Disable with SEED_ON_START=false (e.g. once you're collecting real data).
+    if (settings.seedOnStart) {
+      try {
+        const r = await seedHistoryIfNeeded({ days: settings.seedDays });
+        console.log(
+          r.seeded
+            ? `[seed] wrote ${r.lines} demo snapshots (${r.reason})`
+            : `[seed] skipped (${r.reason})`,
+        );
+      } catch (err) {
+        console.error('[seed] failed:', err.message);
+      }
+    }
+
     if (settings.pollEnabled) startPolling();
     else console.log('[poller] disabled (POLL_ENABLED=false)');
   });

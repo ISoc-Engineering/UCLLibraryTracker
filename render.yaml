@@ -1,0 +1,37 @@
+# Render deployment config (Blueprint).
+# Deploy: push this repo, then in Render choose "New +" -> "Blueprint" and pick
+# this repo, OR create a Web Service manually with the build/start commands below.
+#
+# The free plan has an ephemeral disk and sleeps when idle. That's fine for a
+# demo: the app auto-seeds demo history on every boot (SEED_ON_START defaults
+# to true), so the busyness graph works immediately after each wake/redeploy.
+services:
+  - type: web
+    name: ucl-library-tracker
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      # Demo mode (mock data) by default — no secrets needed to see the app.
+      - key: DATA_SOURCE
+        value: mock
+      # Seed demo history on boot so the busyness graph is populated.
+      - key: SEED_ON_START
+        value: "true"
+      - key: SEED_DAYS
+        value: "3"
+      # Node version.
+      - key: NODE_VERSION
+        value: "20"
+
+      # --- To show REAL live occupancy instead, set these (and DATA_SOURCE=scrape):
+      # - key: DATA_SOURCE
+      #   value: scrape
+      # - key: SCRAPER_URL_TEMPLATE
+      #   value: https://api.scraperapi.com/?api_key={key}&render=true&premium=true&url={url}
+      # - key: SCRAPER_API_KEY
+      #   sync: false   # set the secret value in the Render dashboard
+      # - key: POLL_INTERVAL_MS
+      #   value: "3600000"

@@ -293,8 +293,8 @@ async function init() {
 
   libraries.forEach((lib) => {
     const m = L.circleMarker(lib.coords, {
-      radius: 9,
-      weight: 2,
+      radius: 15,
+      weight: 3,
       color: '#fff',
       fillColor: RAG_COLORS.unknown,
       fillOpacity: 0.95,

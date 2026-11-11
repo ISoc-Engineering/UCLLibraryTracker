@@ -35,6 +35,15 @@ export const settings = {
   // Whether the background poller runs automatically on server start.
   pollEnabled: process.env.POLL_ENABLED !== 'false',
 
+  // Whether to seed demo history on boot when the history file is empty/sparse,
+  // so the busyness graph works immediately. Defaults on (great for demos and
+  // for Render's ephemeral disk); set SEED_ON_START=false once you're
+  // collecting real data you don't want mixed with demo data.
+  seedOnStart: process.env.SEED_ON_START !== 'false',
+
+  // How many days of demo history to generate when seeding.
+  seedDays: intFromEnv('SEED_DAYS', 3),
+
   // Path to the append-only history file (JSON Lines).
   historyFile:
     process.env.HISTORY_FILE ||
