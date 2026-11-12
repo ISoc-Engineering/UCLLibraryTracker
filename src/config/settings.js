@@ -2,6 +2,9 @@
 // build runs in development (mock data) and production (live scraped data)
 // without code changes.
 
+import { fileURLToPath } from 'node:url';
+
+
 function intFromEnv(name, fallback) {
   const raw = process.env[name];
   if (raw === undefined || raw === '') return fallback;
@@ -47,7 +50,7 @@ export const settings = {
   // Path to the append-only history file (JSON Lines).
   historyFile:
     process.env.HISTORY_FILE ||
-    new URL('../../data/history.jsonl', import.meta.url).pathname,
+    fileURLToPath(new URL('../../data/history.jsonl', import.meta.url)),
 };
 
 // R/A/G classification thresholds, as occupancy fraction (0..1).
