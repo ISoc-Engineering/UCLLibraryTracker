@@ -46,6 +46,31 @@ function ragOf(occupancy, thresholds) {
   return 'green';
 }
 
+function hexToRgba(hex, alpha) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+
+// Colours the busyness chart by RAG region. The y-axis is fixed at 0-100 (% full),
+// so a vertical gradient with hard stops at the thresholds makes the line change
+// colour exactly where it crosses into a new region.
+function ragGradient(chart, alpha) {
+  const { ctx, chartArea } = chart;
+  if (!chartArea) return RAG_COLORS.green; // first layout pass, no area yet
+  const norm = (v) => Math.min(1, Math.max(0, v > 1 ? v / 100 : v)); // accept 0.6 or 60
+  const amberAt = norm(lastThresholds && lastThresholds.amberAt != null ? lastThresholds.amberAt : 0.6);
+  const redAt = norm(lastThresholds && lastThresholds.redAt != null ? lastThresholds.redAt : 0.85);
+  const c = (k) => hexToRgba(RAG_COLORS[k], alpha);
+  const g = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
+  g.addColorStop(0, c('green'));
+  g.addColorStop(amberAt, c('green'));
+  g.addColorStop(amberAt, c('amber'));
+  g.addColorStop(redAt, c('amber'));
+  g.addColorStop(redAt, c('red'));
+  g.addColorStop(1, c('red'));
+  return g;
+}
+
 function directionsUrl(coords, name) {
   const [lat, lng] = coords;
   // Universal Google Maps directions link (works on desktop + mobile).
@@ -183,8 +208,10 @@ async function showChart(libraryId, name) {
         {
           label: '% full',
           data: values,
-          borderColor: '#1a56db',
-          backgroundColor: 'rgba(26,86,219,0.12)',
+          borderColor: (c) => ragGradient(c.chart, 1),
+          backgroundColor: (c) => ragGradient(c.chart, 0.15),
+          pointBackgroundColor: values.map((v) => RAG_COLORS[ragOf(v / 100, lastThresholds)]),
+          pointBorderColor: values.map((v) => RAG_COLORS[ragOf(v / 100, lastThresholds)]),
           fill: true,
           tension: 0.3,
           pointRadius: 2,
