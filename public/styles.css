@@ -184,7 +184,45 @@ footer {
 }
 footer p { margin: 0; }
 
-/* Leaflet popup content */
+/* Map markers (HTML elements placed by Mapbox GL) */
+.lib-marker {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2.5px solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  padding: 0;
+  transition: width 0.15s, height 0.15s, border-width 0.15s;
+}
+/* Zoomed in, when the library's building is coloured instead */
+.lib-marker.small {
+  width: 10px;
+  height: 10px;
+  border-width: 2px;
+}
+.user-marker {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #1a56db;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 2px rgba(26, 86, 219, 0.35);
+}
+
+/* Shown in place of the map when no Mapbox token is configured */
+.map-message {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 1.5rem;
+  text-align: center;
+  color: var(--muted);
+}
+
+/* Popup content */
+.mapboxgl-popup-content { padding: 0.75rem 1rem; border-radius: 8px; }
 .popup-title { font-weight: 700; margin-bottom: 0.25rem; }
 .popup-stat { font-size: 0.85rem; margin: 0.15rem 0; }
 .popup-actions { margin-top: 0.5rem; display: flex; gap: 0.5rem; }

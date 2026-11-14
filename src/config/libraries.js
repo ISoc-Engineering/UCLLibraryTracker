@@ -5,58 +5,60 @@
 // back to the right library. Matching is done case-insensitively and loosely
 // (see matchLibrary below).
 //
-// Coordinates are approximate building locations (lat, lng) used to place the
-// marker and to build a directions link. They are hardcoded because neither
-// data source provides geolocation.
+// Coordinates (lat, lng) come from UCL's own campus map (maps.ucl.ac.uk) and
+// point inside each library's building. They place the marker, pick which
+// building to colour on the map, and build the directions link. The Graduate
+// Hub uses the Print Room Café point, which UCL lists as directly opposite.
+// They are hardcoded because the occupancy feed doesn't provide locations.
 
 export const LIBRARIES = [
   {
     id: 'main',
     name: 'Main Library',
     names: ['Main Library'],
-    coords: [51.524870, -0.133260],
+    coords: [51.524822, -0.133392],
   },
   {
     id: 'science',
     name: 'Science Library',
     names: ['Science Library', 'DMS Watson', 'Science'],
-    coords: [51.524450, -0.132000],
+    coords: [51.523498, -0.132777],
   },
   {
     id: 'student-centre',
     name: 'Student Centre',
     names: ['Student Centre', 'UCL Student Centre'],
-    coords: [51.524220, -0.131100],
+    coords: [51.524758, -0.132512],
   },
   {
     id: 'cruciform',
     name: 'Cruciform Hub',
     names: ['Cruciform Hub', 'Cruciform'],
-    coords: [51.523870, -0.134750],
+    coords: [51.524025, -0.134615],
   },
   {
     id: 'ioe',
     name: 'IOE Library',
     names: ['IOE Library', 'Institute of Education Library', 'Newsam Library'],
-    coords: [51.523300, -0.127900],
+    coords: [51.522681, -0.127989],
   },
   {
     id: 'ssees',
     name: 'SSEES Library',
     names: ['SSEES Library', 'SSEES', 'School of Slavonic and East European Studies'],
-    coords: [51.525560, -0.131170],
+    coords: [51.525342, -0.131761],
   },
   {
     id: 'bartlett',
     name: 'Bartlett Library',
     names: ['Bartlett Library', 'Bartlett'],
-    coords: [51.526050, -0.136590],
+    coords: [51.526759, -0.129938],
   },
   {
     id: 'archaeology',
     name: 'Institute of Archaeology Library',
     names: ['Institute of Archaeology Library', 'Institute of Archaeology', 'Archaeology'],
-    coords: [51.524820, -0.131020],
+    coords: [51.524973, -0.131557],
   },
   {
     id: 'ich',
@@ -66,25 +68,25 @@ export const LIBRARIES = [
       'Institute of Child Health',
       'GOS ICH',
     ],
-    coords: [51.522900, -0.120800],
+    coords: [51.523322, -0.120017],
   },
   {
     id: 'graduate-hub',
     name: 'Graduate Hub',
     names: ['Graduate Hub (Postgraduate use only)', 'Graduate Hub'],
-    coords: [51.524870, -0.133900],
+    coords: [51.524154, -0.133223],
   },
   {
     id: 'ophthalmology',
     name: 'The Joint Library of Ophthalmology',
     names: ['The Joint Library of Ophthalmology', 'Joint Library of Ophthalmology', 'Ophthalmology'],
-    coords: [51.527200, -0.090400],
+    coords: [51.527353, -0.091256],
   },
   {
     id: 'lss',
     name: 'Language & Speech Science Library',
     names: ['Language & Speech Science Library', 'Language and Speech Science Library'],
-    coords: [51.525800, -0.122600],
+    coords: [51.525971, -0.122854],
   },
   {
     id: 'neurology',
@@ -94,19 +96,19 @@ export const LIBRARIES = [
       'Queen Square Library',
       'Institute of Neurology',
     ],
-    coords: [51.522300, -0.122500],
+    coords: [51.522298, -0.123004],
   },
   {
     id: 'pharmacy',
     name: 'School of Pharmacy Library',
     names: ['School of Pharmacy Library', 'School of Pharmacy'],
-    coords: [51.525200, -0.122000],
+    coords: [51.525083, -0.122458],
   },
   {
     id: 'ucl-east',
     name: 'UCL East Library',
     names: ['UCL East Library', 'UCL East', 'Marshgate'],
-    coords: [51.538400, -0.011900],
+    coords: [51.537470, -0.010602],
   },
 ];
 
