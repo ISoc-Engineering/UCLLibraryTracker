@@ -30,6 +30,7 @@ app.get('/api/libraries', (_req, res) => {
   res.json({
     thresholds: RAG_THRESHOLDS,
     source: activeSourceName(),
+    mapbox: { token: settings.mapboxToken, style: settings.mapboxStyle },
     libraries: LIBRARIES.map((l) => ({
       id: l.id,
       name: l.name,

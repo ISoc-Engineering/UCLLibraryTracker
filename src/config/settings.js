@@ -4,6 +4,14 @@
 
 import { fileURLToPath } from 'node:url';
 
+// Load variables from a .env file in the project root, if there is one.
+// (process.loadEnvFile is built into Node 20.12+; values already set in the
+// real environment, e.g. on Render, take priority.)
+try {
+  process.loadEnvFile?.(fileURLToPath(new URL('../../.env', import.meta.url)));
+} catch {
+  // No .env file — that's fine, defaults apply.
+}
 
 function intFromEnv(name, fallback) {
   const raw = process.env[name];
@@ -43,6 +51,15 @@ export const settings = {
   // for Render's ephemeral disk); set SEED_ON_START=false once you're
   // collecting real data you don't want mixed with demo data.
   seedOnStart: process.env.SEED_ON_START !== 'false',
+
+  // Mapbox public access token (starts with "pk.") for the map in the browser.
+  // Public tokens are designed to be shipped to the browser; restrict it to
+  // your site's URLs in the Mapbox dashboard.
+  mapboxToken: process.env.MAPBOX_TOKEN || '',
+
+  // Mapbox map style. Try e.g. mapbox://styles/mapbox/light-v11, dark-v11,
+  // satellite-streets-v12 or standard to compare looks.
+  mapboxStyle: process.env.MAPBOX_STYLE || 'mapbox://styles/mapbox/streets-v12',
 
   // How many days of demo history to generate when seeding.
   seedDays: intFromEnv('SEED_DAYS', 3),
