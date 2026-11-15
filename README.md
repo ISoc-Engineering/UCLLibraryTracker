@@ -22,7 +22,7 @@ Windows, and Linux.
 
 ### 1. Install Node.js (one time)
 
-You need Node.js version 20 or newer. Download the **LTS** installer from
+You need Node.js version 22 or newer (the Cloudflare `wrangler` tool needs 22.12+). Download the **LTS** installer from
 [nodejs.org](https://nodejs.org/) and run it (on Windows, keep "Add to PATH"
 ticked). Then **open a new terminal** and check it worked:
 
@@ -54,31 +54,41 @@ From **inside the project folder**, run:
 npm install
 ```
 
-This downloads everything the app needs. Wait for it to finish (a few
+This downloads everything the app needs, including Cloudflare's `wrangler`
+tool, which runs the app locally exactly as it runs on Cloudflare. Wait for it to finish (a few
 `npm notice` / funding messages are normal — just no red **error**).
 
-### 4. Start it
+### 4. Add your Mapbox token (one time)
+
+The map needs a free Mapbox public token. Copy `.env.example` to `.env`, then
+paste your token (starts with `pk.`) from
+[account.mapbox.com](https://account.mapbox.com) into it.
+
+### 5. Start it
 
 ```bash
-npm start
+npm run dev
 ```
 
-You should see:
+The first time, this creates a local database (if asked to confirm the
+migration, press **y**). Then you should see something like:
 
 ```
-UCL Library Tracker listening on http://localhost:3000 (source: mock)
-[seed] wrote ... demo snapshots ...
+Ready on http://localhost:8787
 ```
 
-### 5. Open it in your browser
+### 6. Open it in your browser
 
-Go to **http://localhost:3000**
+Go to **http://localhost:8787**
 
 That's it. It runs on **demo data** right away, so the map, the R/A/G markers,
 the "find libraries near me" button, and a pre-populated busyness graph all work
 immediately. To stop the app, go back to the terminal and press **Ctrl + C**.
 
-To run it again later, you only need steps 4–5 (`npm start`, then open the URL).
+To run it again later, you only need steps 5–6.
+
+> **Testing the 5-minute poller locally:** run `npm run dev -- --test-scheduled`
+> and open http://localhost:8787/__scheduled to fire the cron once.
 
 > **Windows PowerShell note:** if `npm install` fails with
 > *"running scripts is disabled on this system"*, run this once in PowerShell,
@@ -87,26 +97,101 @@ To run it again later, you only need steps 4–5 (`npm start`, then open the URL
 > Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 > ```
 
-> **Want real live occupancy instead of demo data?** Copy `.env.example` to
-> `.env` and follow the notes inside it (and see the sections below).
+> **Want real live occupancy instead of demo data?** See
+> [Live data from UCL](#live-data-from-ucl) below.
 
-## Put it online (shareable link)
+### Tests
 
-The repo includes a `render.yaml`, so you can deploy a public demo for free on
-[Render](https://render.com): sign in with GitHub, choose **New → Blueprint**,
-and pick this repo. Render builds it and gives you a public URL.
+```bash
+npm test
+```
 
-> The free tier runs on demo data and sleeps when idle (first visit after a nap
-> takes ~30–60s to wake). The demo busyness graph is regenerated on each boot.
+This runs the parser/unit tests and then an end-to-end test that starts the
+Worker under `wrangler dev` (with a throwaway database), calls every API route,
+and fires the cron once.
 
-## Collecting real data (for free, via GitHub Actions)
+## How it works
 
-Instead of running a server 24/7 to log occupancy, this repo collects data with
-a **scheduled GitHub Action** (`.github/workflows/collect.yml`). On a schedule
-it fetches one snapshot and commits it to `data/history.collected.jsonl`, so
-real busyness history builds up **in the repo itself** — durable, free, and
-available to anyone who clones it. The website reads this committed history, so
-your graphs fill with real data even on a free (ephemeral) host.
+It's a single [Cloudflare Worker](https://developers.cloudflare.com/workers/):
+
+- **Static site**: `public/` is served as Workers static assets.
+- **API**: `src/worker.js` answers `/api/libraries`, `/api/current`,
+  `/api/history?libraryId=&sinceHours=` and `/api/status`.
+- **Poller**: a Cron Trigger runs every 5 minutes, fetches occupancy, classifies
+  each library R/A/G, and stores the snapshot in a
+  [D1](https://developers.cloudflare.com/d1/) database (`migrations/`).
+- **Demo mode** (`DATA_SOURCE=mock`, the default): an empty database is seeded
+  with a few days of realistic demo history, so the graph works straight away.
+
+## Put it online (Cloudflare)
+
+You need a free Cloudflare account. All commands run from the project folder.
+
+1. **Log in** (opens your browser):
+
+   ```bash
+   npx wrangler login
+   ```
+
+2. **Create the database**, then copy the `database_id` it prints into
+   `wrangler.jsonc` (replace the `00000000-…` placeholder under
+   `d1_databases`):
+
+   ```bash
+   npx wrangler d1 create ucl-library-tracker
+   ```
+
+3. **Create the tables** in the new database:
+
+   ```bash
+   npm run db:migrate
+   ```
+
+4. **Add your Mapbox token** as a secret (it will ask you to paste it):
+
+   ```bash
+   npx wrangler secret put MAPBOX_TOKEN
+   ```
+
+   In the Mapbox dashboard, restrict the token to your `*.workers.dev` URL.
+
+5. **Deploy**:
+
+   ```bash
+   npm run deploy
+   ```
+
+   Wrangler prints your public URL (`https://ucl-library-tracker.<you>.workers.dev`).
+   Deploy again any time with `npm run deploy`. Watch logs with
+   `npx wrangler tail`.
+
+Unlike the old Render free tier, a Worker doesn't sleep, and history in D1
+survives redeploys. The free plan easily covers polling every 5 minutes.
+
+## Live data from UCL
+
+The only source of occupancy is UCL's own seat-availability page:
+<https://www.ucl.ac.uk/library/forms/indigo-seat-availability.php?loc=all>.
+The app fetches it **directly from UCL**, with an honest `User-Agent`. It does
+not use third-party scraping services or other students' APIs, and it does not
+try to get round UCL's Cloudflare bot protection.
+
+To switch to live data, set `"DATA_SOURCE": "scrape"` in `wrangler.jsonc`
+(`"vars"`) and deploy. Demo seeding switches off automatically in live mode.
+
+**If UCL's bot protection blocks the Worker**, the poller records a clear error
+and backs off (it waits 5 min, then 10, 20, … up to 6 hours between attempts).
+Visiting the site never triggers extra requests to UCL. Check:
+
+```
+https://<your-worker>.workers.dev/api/status
+```
+
+`"lastErrorKind": "cloudflare-challenge"` means UCL's firewall challenged the
+request. The fix is to ask UCL (Library / ISD web team) to add a **WAF custom
+rule with the Skip action** for requests from this Worker, for example matching
+the `CF-Worker` request header (your `*.workers.dev` subdomain or custom domain)
+on the path `/library/forms/indigo-seat-availability.php`.
 
 ## License
 

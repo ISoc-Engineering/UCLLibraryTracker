@@ -1,5 +1,8 @@
 node_modules/
-# Logged occupancy snapshots (generated at runtime). Keep the folder, ignore data.
+# Old JSONL history files from the Node version (history now lives in D1).
 data/*.jsonl
+# Local wrangler state (local D1 database, etc.)
+.wrangler/
 .env
+.dev.vars
 *.log

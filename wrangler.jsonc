@@ -1,0 +1,44 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "ucl-library-tracker",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-11-01",
+
+  // Static frontend. Requests that match a file in public/ are served directly
+  // (no Worker invocation); everything else (/api/*) falls through to the Worker.
+  "assets": {
+    "directory": "./public"
+  },
+
+  // Occupancy history. Create the database with `npx wrangler d1 create
+  // ucl-library-tracker` and paste the database_id it prints here (see README).
+  // The placeholder works for local `wrangler dev`, which uses a local SQLite file.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ucl-library-tracker",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Poll every 5 minutes (UCL's sensors update on roughly that cadence).
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+
+  // Non-secret settings. MAPBOX_TOKEN is set with `wrangler secret put` in
+  // production and read from .env / .dev.vars locally.
+  "vars": {
+    // "mock" = demo data (default), "scrape" = live UCL feed.
+    "DATA_SOURCE": "mock",
+    "MAPBOX_STYLE": "mapbox://styles/mapbox/streets-v12",
+    // Seed a few days of demo history when the DB is empty (mock mode only).
+    "SEED_DEMO_HISTORY": "true",
+    "SEED_DAYS": "3"
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}

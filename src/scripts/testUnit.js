@@ -1,7 +1,8 @@
-// Verifies parseFeed() against the real feed output (captured live) and against
+// Verifies parseFeed(), challenge detection and the poll backoff. parseFeed is checked against the real feed output (captured live) and against
 // a tag-wrapped HTML variant, to prove the parser is robust.
 
-import { parseFeed } from '../sources/scrapeSource.js';
+import { parseFeed, fetchOccupancy, isChallengeResponse } from '../sources/scrapeSource.js';
+import { backoffMs } from '../poller.js';
 
 // Real plain-text output captured live from the UCL Indigo feed.
 const REAL_TEXT = `Current study space availability, UCL Library Services
@@ -80,6 +81,46 @@ assert(r2.length === 3, `HTML variant parsed 3 libraries (got ${r2.length})`);
 const htmlMain = r2.find((r) => r.libraryId === 'main');
 assert(htmlMain && htmlMain.total === 624 && htmlMain.free === 284,
   `HTML variant Main Library parsed correctly (got ${JSON.stringify(htmlMain)})`);
+
+// --- Live page format as of Nov 2026 (modelled on a real Worker fetch, overnight):
+// seat counts split across elements, closed libraries say "Currently closed".
+const LIVE_HTML_2026 = `<h2>Current space availability</h2>
+<p><strong>Bartlett Library</strong><br>Currently <strong>closed</strong>.</p>
+<p><strong>Main Library</strong><br>Currently <strong>closed</strong>.</p>
+<p><strong>Science Library</strong><br>Currently <strong>closed</strong>.</p>
+<p><strong>Student Centre</strong><br><strong>410 free seats</strong>
+ out of 647</p>
+<p><strong>UCL East Library</strong><br>Currently <strong>closed</strong>.</p>`;
+const r3 = parseFeed(LIVE_HTML_2026);
+const sc = r3.find((r) => r.libraryId === 'student-centre');
+assert(r3.length === 1 && sc && sc.free === 410 && sc.total === 647,
+  `2026 format: split seat count parsed, closed libraries skipped (got ${JSON.stringify(r3)})`);
+
+// --- Cloudflare challenge detection (no network: fake fetch) ---
+const CHALLENGE_HTML = '<!DOCTYPE html><html><head><title>Just a moment...</title></head><body></body></html>';
+const fakeFetch = (body, init) => async () => new Response(body, init);
+
+assert(
+  isChallengeResponse(new Response('', { headers: { 'cf-mitigated': 'challenge' } })),
+  'cf-mitigated: challenge header is detected',
+);
+assert(isChallengeResponse(new Response(''), CHALLENGE_HTML), '"Just a moment" body is detected');
+assert(!isChallengeResponse(new Response(''), REAL_TEXT), 'real feed is not mistaken for a challenge');
+
+try {
+  await fetchOccupancy({ fetchImpl: fakeFetch(CHALLENGE_HTML, { status: 403, headers: { 'cf-mitigated': 'challenge' } }) });
+  assert(false, 'challenge response throws');
+} catch (e) {
+  assert(e.isChallenge === true && /WAF skip rule/.test(e.message), `challenge throws ChallengeError (${e.message.slice(0, 60)}...)`);
+}
+
+const live = await fetchOccupancy({ fetchImpl: fakeFetch(REAL_TEXT, { status: 200 }) });
+assert(live.length === 15, `fetchOccupancy parses a normal 200 response (got ${live.length})`);
+
+// --- Backoff schedule ---
+assert(backoffMs(0) === 0, 'no backoff after success');
+assert(backoffMs(1) === 5 * 60e3 && backoffMs(2) === 10 * 60e3, 'backoff doubles from 5 min');
+assert(backoffMs(50) === 6 * 3600e3, 'backoff caps at 6 h');
 
 console.log('\nParsed sample:');
 for (const r of r1.slice(0, 3)) {

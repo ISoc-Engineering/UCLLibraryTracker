@@ -1,9 +1,6 @@
-// Append-only history store backed by a JSON Lines file (one JSON object per
-// line). JSONL is used instead of a single JSON array so the file can grow
-// cheaply (we just append) and be streamed/analysed later without loading the
-// whole thing into memory — handy for the future busyness-over-time analysis.
+// Occupancy history stored in Cloudflare D1 (see migrations/0001_init.sql).
 //
-// Each line is one poll snapshot:
+// The API still speaks in "snapshots", the same shape the JSONL file used:
 // {
 //   "ts": "2026-11-10T14:05:00.000Z",
 //   "source": "mock",
@@ -14,18 +11,10 @@
 //     ...
 //   ]
 // }
+// In D1 each library reading is its own row, keyed by (ts, library_id), which
+// makes per-library history queries cheap.
 
-import { appendFile, readFile, mkdir } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { dirname } from 'node:path';
-import { settings, classifyRAG } from '../config/settings.js';
-
-async function ensureDir() {
-  const dir = dirname(settings.historyFile);
-  if (!existsSync(dir)) {
-    await mkdir(dir, { recursive: true });
-  }
-}
+import { classifyRAG } from '../config/settings.js';
 
 /**
  * Build a normalised snapshot (adds occupancy fraction + RAG) from raw records.
@@ -46,41 +35,130 @@ export function buildSnapshot(records, { source, ts = new Date() } = {}) {
   return { ts: ts.toISOString(), source, libraries };
 }
 
-/**
- * Append a snapshot to the history file.
- */
-export async function appendSnapshot(snapshot) {
-  await ensureDir();
-  await appendFile(settings.historyFile, JSON.stringify(snapshot) + '\n', 'utf8');
-}
+// Rows per INSERT statement. Rows are passed as ONE JSON parameter and
+// unpacked with json_each(), so a big seed costs a handful of queries instead
+// of one per row (D1 limits queries per invocation and bound params per query).
+const ROWS_PER_INSERT = 1000;
+
+const INSERT_SQL = `
+  INSERT OR REPLACE INTO readings
+    (ts, source, library_id, name, occupied, total, free, occupancy, rag)
+  SELECT
+    json_extract(value, '$.ts'),
+    json_extract(value, '$.source'),
+    json_extract(value, '$.libraryId'),
+    json_extract(value, '$.name'),
+    json_extract(value, '$.occupied'),
+    json_extract(value, '$.total'),
+    json_extract(value, '$.free'),
+    json_extract(value, '$.occupancy'),
+    json_extract(value, '$.rag')
+  FROM json_each(?)`;
 
 /**
- * Read history snapshots, optionally only those on/after `since` (a Date).
- * Returns an array of snapshot objects (oldest first). Malformed lines are
- * skipped defensively.
+ * Store one or more snapshots.
+ * @param {D1Database} db
+ * @param {Array<object>} snapshots
  */
-export async function readHistory({ since } = {}) {
-  if (!existsSync(settings.historyFile)) return [];
-  const raw = await readFile(settings.historyFile, 'utf8');
+export async function insertSnapshots(db, snapshots) {
+  const rows = snapshots.flatMap((s) =>
+    s.libraries.map((l) => ({ ts: s.ts, source: s.source, ...l })),
+  );
+  if (rows.length === 0) return 0;
+
+  const stmt = db.prepare(INSERT_SQL);
+  const batch = [];
+  for (let i = 0; i < rows.length; i += ROWS_PER_INSERT) {
+    batch.push(stmt.bind(JSON.stringify(rows.slice(i, i + ROWS_PER_INSERT))));
+  }
+  await db.batch(batch);
+  return rows.length;
+}
+
+/** Group flat reading rows (ordered by ts) back into snapshots. */
+function toSnapshots(rows) {
   const out = [];
-  for (const line of raw.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
+  let current = null;
+  for (const r of rows) {
+    if (!current || current.ts !== r.ts) {
+      current = { ts: r.ts, source: r.source, libraries: [] };
+      out.push(current);
+    }
+    current.libraries.push({
+      libraryId: r.library_id,
+      name: r.name,
+      occupied: r.occupied,
+      total: r.total,
+      free: r.free,
+      occupancy: r.occupancy,
+      rag: r.rag,
+    });
+  }
+  return out;
+}
+
+const COLUMNS = 'ts, source, library_id, name, occupied, total, free, occupancy, rag';
+
+/**
+ * Read history snapshots (oldest first), optionally only those on/after
+ * `since` (a Date) and only for one library.
+ */
+export async function readHistory(db, { since, libraryId } = {}) {
+  const where = [];
+  const params = [];
+  if (since) {
+    where.push('ts >= ?');
+    params.push(since.toISOString());
+  }
+  if (libraryId) {
+    where.push('library_id = ?');
+    params.push(libraryId);
+  }
+  const sql =
+    `SELECT ${COLUMNS} FROM readings` +
+    (where.length ? ` WHERE ${where.join(' AND ')}` : '') +
+    ' ORDER BY ts, rowid';
+  const { results } = await db.prepare(sql).bind(...params).all();
+  return toSnapshots(results);
+}
+
+/** Return the most recent snapshot, or null if history is empty. */
+export async function latestSnapshot(db) {
+  const { results } = await db
+    .prepare(
+      `SELECT ${COLUMNS} FROM readings
+       WHERE ts = (SELECT MAX(ts) FROM readings) ORDER BY rowid`,
+    )
+    .all();
+  return toSnapshots(results)[0] || null;
+}
+
+/** Number of stored snapshots (distinct timestamps). */
+export async function countSnapshots(db) {
+  const row = await db.prepare('SELECT COUNT(DISTINCT ts) AS n FROM readings').first();
+  return row ? row.n : 0;
+}
+
+// ---- Poller state (key/value) ----
+
+/** Read all meta keys into a plain object (values are JSON-decoded). */
+export async function getMeta(db) {
+  const { results } = await db.prepare('SELECT key, value FROM meta').all();
+  const out = {};
+  for (const { key, value } of results) {
     try {
-      const obj = JSON.parse(trimmed);
-      if (since && new Date(obj.ts) < since) continue;
-      out.push(obj);
+      out[key] = JSON.parse(value);
     } catch {
-      // skip malformed line
+      out[key] = value;
     }
   }
   return out;
 }
 
-/**
- * Return the most recent snapshot, or null if history is empty.
- */
-export async function latestSnapshot() {
-  const all = await readHistory();
-  return all.length ? all[all.length - 1] : null;
+/** Upsert several meta keys at once. */
+export async function setMeta(db, entries) {
+  const stmt = db.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)');
+  await db.batch(
+    Object.entries(entries).map(([k, v]) => stmt.bind(k, JSON.stringify(v ?? null))),
+  );
 }

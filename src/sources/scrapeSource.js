@@ -8,47 +8,34 @@
 //   Main Library
 //   284 free seats out of 624
 //
-// The catch: the feed sits behind Cloudflare bot protection, so a plain
-// server-side request (or a self-hosted headless browser from a datacenter IP)
-// gets served a "Just a moment..." challenge instead of the data. To fetch it
-// reliably you need a managed scraping/browser service that passes Cloudflare
-// from a residential-grade IP.
-//
-// This source is therefore PROVIDER-AGNOSTIC: you point it at whatever scraping
-// service you use via env vars. It has been verified against the real feed
-// output. Known-compatible services include ScraperAPI, ScrapingBee, ZenRows,
-// and Browserless — all have free tiers. See .env.example / README for setup.
+// We fetch it DIRECTLY from the Worker with an honest User-Agent. The page sits
+// behind Cloudflare bot protection, and we deliberately do NOT try to get past
+// it (no third-party scraping service, no fake browser headers, no proxies, no
+// challenge solving). If UCL serves a challenge we report that clearly; the
+// legitimate fix is for UCL to add a WAF skip rule for this Worker.
 
 import { matchLibrary } from '../config/libraries.js';
 
 const FEED_URL =
   'https://www.ucl.ac.uk/library/forms/indigo-seat-availability.php?loc=all';
 
+// Identifies the app honestly so UCL can recognise (and allow) its requests.
+const USER_AGENT = 'UCL-Library-Tracker/0.2 (Cloudflare Worker; student project)';
+
 /**
- * Build the request URL for the configured scraping provider.
- *
- * Most providers take the target URL as a query param plus an API key, and
- * optionally a flag to render JS / use premium (residential) proxies, which is
- * what's needed to clear Cloudflare.
- *
- * `scraper.urlTemplate` lets you support ANY provider without code changes:
- * it's a template where `{url}` is replaced with the (encoded) target URL and
- * `{key}` with the API key. If no template is given, we fall back to a direct
- * request (useful for local testing / if you proxy it yourself).
+ * Thrown when UCL's Cloudflare protection returns a challenge page instead of
+ * the feed. The poller uses `isChallenge` to back off instead of retrying.
  */
-function buildRequest({ apiKey, urlTemplate, extraHeaders }) {
-  const encodedTarget = encodeURIComponent(FEED_URL);
-
-  if (urlTemplate) {
-    const url = urlTemplate
-      .replaceAll('{url}', encodedTarget)
-      .replaceAll('{key}', encodeURIComponent(apiKey || ''));
-    return { url, headers: extraHeaders || {} };
+export class ChallengeError extends Error {
+  constructor(status) {
+    super(
+      `UCL's site returned a Cloudflare bot-protection challenge (HTTP ${status}) ` +
+        'instead of the seat-availability feed. This needs UCL to add a WAF skip ' +
+        'rule for this Worker; the app will not try to bypass it.',
+    );
+    this.name = 'ChallengeError';
+    this.isChallenge = true;
   }
-
-  // Direct fallback (will likely be Cloudflare-blocked from a server, but
-  // useful for testing the parser against a cached/proxied copy).
-  return { url: FEED_URL, headers: extraHeaders || {} };
 }
 
 /**
@@ -56,7 +43,11 @@ function buildRequest({ apiKey, urlTemplate, extraHeaders }) {
  *
  * The feed's visible text is a sequence of:
  *   <Library Name>
- *   <N> free seats out of <M>
+ *   <N> free seats out of <M>      (possibly split across elements)
+ * or, for a closed library:
+ *   <Library Name>
+ *   Currently closed.
+ * Closed libraries have no seat counts and are skipped.
  *
  * We work off the plain text content. The regex captures the free/total pair
  * and we take the library name from the text immediately preceding it. This is
@@ -67,7 +58,11 @@ export function parseFeed(raw) {
   const text = String(raw)
     .replace(/<[^>]+>/g, '\n') // tags -> line breaks
     .replace(/&amp;/g, '&')
-    .replace(/\r/g, '');
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\r/g, '')
+    // The live page splits "410 free seats" and "out of 647" across elements,
+    // so join a seat count spread over several lines back into one line.
+    .replace(/(\d+)\s+free\s+seats?\s+out\s+of\s+(\d+)/gi, '\n$1 free seats out of $2\n');
 
   const lines = text
     .split('\n')
@@ -110,31 +105,32 @@ export function parseFeed(raw) {
   return records;
 }
 
-export async function fetchOccupancy({ apiKey, urlTemplate, extraHeaders } = {}) {
-  const { url, headers } = buildRequest({ apiKey, urlTemplate, extraHeaders });
+/**
+ * True if a response is a Cloudflare challenge rather than real content.
+ */
+export function isChallengeResponse(res, body = '') {
+  if ((res.headers.get('cf-mitigated') || '').toLowerCase() === 'challenge') return true;
+  return /<title>\s*just a moment|cf-chl-|challenge-platform/i.test(body);
+}
 
-  const res = await fetch(url, { headers });
-  if (!res.ok) {
-    throw new Error(`Scrape request failed: ${res.status} ${res.statusText}`);
-  }
+export async function fetchOccupancy({ fetchImpl = fetch } = {}) {
+  const res = await fetchImpl(FEED_URL, {
+    headers: { 'User-Agent': USER_AGENT, Accept: 'text/html' },
+    redirect: 'follow',
+  });
 
+  // Read the body even on error statuses: challenges arrive as 403/503.
   const body = await res.text();
+  if (isChallengeResponse(res, body)) throw new ChallengeError(res.status);
 
-  // Guard: detect a Cloudflare challenge instead of real data so the error is
-  // actionable rather than "0 libraries parsed".
-  if (/just a moment|cf-mitigated|security verification|cf-chl/i.test(body)) {
-    throw new Error(
-      'Received a Cloudflare challenge page instead of the feed. ' +
-        'Configure a scraping provider that renders JS / uses premium proxies ' +
-        '(set SCRAPER_URL_TEMPLATE and SCRAPER_API_KEY). See README.',
-    );
+  if (!res.ok) {
+    throw new Error(`UCL feed request failed: ${res.status} ${res.statusText}`);
   }
 
   const records = parseFeed(body);
   if (records.length === 0) {
     throw new Error(
-      'Parsed 0 libraries from the feed — the response format may have changed ' +
-        'or the provider returned an unexpected page.',
+      'Parsed 0 libraries from the UCL feed; the page format may have changed.',
     );
   }
 

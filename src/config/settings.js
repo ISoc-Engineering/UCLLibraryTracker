@@ -1,74 +1,42 @@
-// Central runtime configuration, driven by environment variables so the same
-// build runs in development (mock data) and production (live scraped data)
-// without code changes.
+// Central runtime configuration. On Cloudflare Workers, settings come from the
+// `env` object (wrangler.jsonc "vars", secrets, and .env / .dev.vars locally),
+// so this module exposes a function rather than reading process.env.
 
-import { fileURLToPath } from 'node:url';
-
-// Load variables from a .env file in the project root, if there is one.
-// (process.loadEnvFile is built into Node 20.12+; values already set in the
-// real environment, e.g. on Render, take priority.)
-try {
-  process.loadEnvFile?.(fileURLToPath(new URL('../../.env', import.meta.url)));
-} catch {
-  // No .env file — that's fine, defaults apply.
-}
-
-function intFromEnv(name, fallback) {
-  const raw = process.env[name];
+function intFrom(raw, fallback) {
   if (raw === undefined || raw === '') return fallback;
   const n = Number.parseInt(raw, 10);
   return Number.isFinite(n) ? n : fallback;
 }
 
-export const settings = {
-  // HTTP port for the web server.
-  port: intFromEnv('PORT', 3000),
+/**
+ * Build the settings object from a Worker `env`.
+ * @param {Record<string, any>} env
+ */
+export function getSettings(env = {}) {
+  // Which data source to use: 'scrape' (live UCL feed) or 'mock' (demo data).
+  const dataSource = env.DATA_SOURCE || 'mock';
 
-  // Which data source to use: 'scrape' (live) or 'mock' (demo data).
-  // Defaults to 'scrape' when a scraper provider is configured, else 'mock'.
-  dataSource:
-    process.env.DATA_SOURCE ||
-    (process.env.SCRAPER_URL_TEMPLATE ? 'scrape' : 'mock'),
+  return {
+    dataSource,
 
-  // Scraping-provider config for the live 'scrape' source. The UCL feed is
-  // behind Cloudflare, so a managed scraping service is needed to fetch it.
-  //   SCRAPER_URL_TEMPLATE — provider request URL; use {url} for the (encoded)
-  //                          target feed URL and {key} for the API key.
-  //   SCRAPER_API_KEY      — provider API key.
-  // See .env.example / README for ready-made templates per provider.
-  scraperUrlTemplate: process.env.SCRAPER_URL_TEMPLATE || '',
-  scraperApiKey: process.env.SCRAPER_API_KEY || '',
+    // Mapbox public access token (starts with "pk."), shipped to the browser.
+    // Restrict it to your site's URLs in the Mapbox dashboard.
+    mapboxToken: env.MAPBOX_TOKEN || '',
 
-  // How often to poll the data source and append a snapshot to history,
-  // in milliseconds. Default: every 5 minutes.
-  pollIntervalMs: intFromEnv('POLL_INTERVAL_MS', 5 * 60 * 1000),
+    // Mapbox map style, e.g. mapbox://styles/mapbox/light-v11.
+    mapboxStyle: env.MAPBOX_STYLE || 'mapbox://styles/mapbox/streets-v12',
 
-  // Whether the background poller runs automatically on server start.
-  pollEnabled: process.env.POLL_ENABLED !== 'false',
+    // Seed demo history when the database is empty, so the busyness graph
+    // works immediately. Only ever applies in mock mode, so demo data is never
+    // mixed with real readings.
+    seedDemoHistory: dataSource === 'mock' && env.SEED_DEMO_HISTORY !== 'false',
+    seedDays: intFrom(env.SEED_DAYS, 3),
 
-  // Whether to seed demo history on boot when the history file is empty/sparse,
-  // so the busyness graph works immediately. Defaults on (great for demos and
-  // for Render's ephemeral disk); set SEED_ON_START=false once you're
-  // collecting real data you don't want mixed with demo data.
-  seedOnStart: process.env.SEED_ON_START !== 'false',
-
-  // Mapbox public access token (starts with "pk.") for the map in the browser.
-  // Public tokens are designed to be shipped to the browser; restrict it to
-  // your site's URLs in the Mapbox dashboard.
-  mapboxToken: process.env.MAPBOX_TOKEN || '',
-
-  // Mapbox map style. Try e.g. mapbox://styles/mapbox/light-v11, dark-v11,
-  // satellite-streets-v12 or standard to compare looks.
-  mapboxStyle: process.env.MAPBOX_STYLE || 'mapbox://styles/mapbox/streets-v12',
-
-  // How many days of demo history to generate when seeding.
-  seedDays: intFromEnv('SEED_DAYS', 3),
-
-  // Path to the append-only history file (JSON Lines).
-  historyFile:
-    process.env.HISTORY_FILE ||
-    fileURLToPath(new URL('../../data/history.jsonl', import.meta.url)),
-};
+    // Cron cadence, reported by /api/status (the actual schedule lives in
+    // wrangler.jsonc "triggers").
+    pollIntervalMs: 5 * 60 * 1000,
+  };
+}
 
 // R/A/G classification thresholds, as occupancy fraction (0..1).
 //   occupancy < amberAt            -> green

@@ -1,4 +1,4 @@
-// Mock data source for demos and development (no UCL API token needed).
+// Mock data source for demos and development (no live UCL data needed).
 //
 // It is seeded with a REAL snapshot of total desk counts captured from the UCL
 // Indigo feed, then models a realistic daily "busyness curve" so that polling
@@ -56,9 +56,29 @@ function baseBusyness(hour) {
   return 0.1;
 }
 
+// Workers run in UTC, so read the time-of-day in London explicitly; otherwise
+// the curve would drift an hour during British Summer Time.
+const londonFmt = new Intl.DateTimeFormat('en-GB', {
+  timeZone: 'Europe/London',
+  hour: 'numeric',
+  minute: 'numeric',
+  weekday: 'short',
+  hourCycle: 'h23',
+});
+const WEEKDAYS = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+function londonTime(now) {
+  const parts = Object.fromEntries(londonFmt.formatToParts(now).map((p) => [p.type, p.value]));
+  return {
+    hours: Number(parts.hour),
+    minutes: Number(parts.minute),
+    dow: WEEKDAYS[parts.weekday],
+  };
+}
+
 export async function fetchOccupancy(now = new Date()) {
-  const hour = now.getHours() + now.getMinutes() / 60;
-  const dow = now.getDay(); // 0 = Sun, 6 = Sat
+  const { hours, minutes, dow } = londonTime(now); // dow: 0 = Sun, 6 = Sat
+  const hour = hours + minutes / 60;
   const weekendFactor = dow === 0 ? 0.35 : dow === 6 ? 0.55 : 1;
 
   const records = [];
@@ -71,7 +91,7 @@ export async function fetchOccupancy(now = new Date()) {
     // Per-library personality: some libraries run busier than others.
     const personality = 0.75 + seededRand(seedCounter++) * 0.5; // 0.75..1.25
     // Small time-varying noise so successive polls differ slightly.
-    const noise = (seededRand(now.getMinutes() + seedCounter) - 0.5) * 0.08;
+    const noise = (seededRand(minutes + seedCounter) - 0.5) * 0.08;
 
     let frac = baseBusyness(hour) * weekendFactor * personality + noise;
     frac = Math.max(0.02, Math.min(0.99, frac));
