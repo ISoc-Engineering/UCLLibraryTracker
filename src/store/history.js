@@ -118,8 +118,12 @@ const COLUMNS = 'ts, source, library_id, name, occupied, total, free, occupancy,
 /**
  * Read history snapshots (oldest first), optionally only those on/after
  * `since` (a Date) and only for one library.
+ *
+ * `limit` caps the number of reading rows. The NEWEST rows are kept, and if
+ * the cap is hit the oldest snapshot (which may have been cut in half) is
+ * dropped, so every snapshot returned is complete.
  */
-export async function readHistory(db, { since, libraryId } = {}) {
+export async function readHistory(db, { since, libraryId, limit } = {}) {
   const where = [];
   const params = [];
   if (since) {
@@ -130,12 +134,20 @@ export async function readHistory(db, { since, libraryId } = {}) {
     where.push('library_id = ?');
     params.push(libraryId);
   }
-  const sql =
+  // Newest first so LIMIT keeps the most recent rows. (ts, library_id) is the
+  // primary key order, so SQLite can walk an index instead of sorting.
+  let sql =
     `SELECT ${COLUMNS} FROM readings` +
     (where.length ? ` WHERE ${where.join(' AND ')}` : '') +
-    ' ORDER BY ts, rowid';
+    ' ORDER BY ts DESC, library_id DESC';
+  if (limit) {
+    sql += ' LIMIT ?';
+    params.push(limit);
+  }
   const { results } = await db.prepare(sql).bind(...params).all();
-  return toSnapshots(results);
+  const snapshots = toSnapshots(results.reverse());
+  if (limit && results.length >= limit) snapshots.shift(); // possibly partial
+  return snapshots;
 }
 
 /** Return the most recent snapshot, or null if history is empty. */

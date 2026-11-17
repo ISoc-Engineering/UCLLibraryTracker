@@ -23,6 +23,23 @@ import { LIBRARIES } from './config/libraries.js';
 import { readHistory, latestSnapshot, getMeta } from './store/history.js';
 import { pollOnce } from './poller.js';
 
+// /api/history is public, and D1 bills (and on the free plan, caps) rows
+// *scanned*. So every request gets a bounded time window and a hard row limit,
+// however the URL is crafted and however large the table grows.
+const DEFAULT_HISTORY_HOURS = 24; // what the busyness graph asks for
+const MAX_HISTORY_HOURS = 7 * 24; // one library, at most a week
+const MAX_ALL_LIBRARIES_HOURS = 24; // every library at once, at most a day
+// Backstop: a week of one library at 5-min polls is ~2,000 rows; a day of all
+// 15 libraries is ~4,300.
+const HISTORY_ROW_LIMIT = 5000;
+
+/** Clamp the requested history window (hours) to the limits above. */
+export function historyWindowHours(raw, libraryId) {
+  const requested = Number.parseFloat(raw);
+  const hours = Number.isFinite(requested) && requested > 0 ? requested : DEFAULT_HISTORY_HOURS;
+  return Math.min(hours, libraryId ? MAX_HISTORY_HOURS : MAX_ALL_LIBRARIES_HOURS);
+}
+
 function json(body, status = 200) {
   return Response.json(body, {
     status,
@@ -77,14 +94,12 @@ export function createApp(source) {
   }
 
   async function handleHistory(env, url) {
-    const sinceHours = Number.parseFloat(url.searchParams.get('sinceHours'));
-    const since = Number.isFinite(sinceHours)
-      ? new Date(Date.now() - sinceHours * 3600 * 1000)
-      : undefined;
     const libraryId = url.searchParams.get('libraryId') || undefined;
+    const sinceHours = historyWindowHours(url.searchParams.get('sinceHours'), libraryId);
+    const since = new Date(Date.now() - sinceHours * 3600 * 1000);
 
-    const snapshots = await readHistory(env.DB, { since, libraryId });
-    return json({ count: snapshots.length, snapshots });
+    const snapshots = await readHistory(env.DB, { since, libraryId, limit: HISTORY_ROW_LIMIT });
+    return json({ sinceHours, count: snapshots.length, snapshots });
   }
 
   async function handleStatus(env, settings) {

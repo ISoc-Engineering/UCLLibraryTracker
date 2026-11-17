@@ -115,6 +115,13 @@ await withWorker('demo (--env demo)', ['--env', 'demo'], async (get, base) => {
     b.count >= 90 && b.snapshots.every((s) => s.libraries.length === 1 && s.libraries[0].libraryId === 'main'),
   );
 
+  await check(get, 'GET /api/history (no params) -> 24 h, all libraries', '/api/history', (b) =>
+    b.sinceHours === 24 && b.count >= 90 && b.count <= 100,
+  );
+  await check(get, 'GET /api/history huge sinceHours is capped', '/api/history?libraryId=main&sinceHours=999999', (b) =>
+    b.sinceHours === 168,
+  );
+
   const before = (await get('/api/status')).body;
   await new Promise((r) => setTimeout(r, 1100)); // ensure a distinct timestamp
   const cron = await fetch(base + '/__scheduled?cron=*/5+*+*+*+*');

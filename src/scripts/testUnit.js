@@ -3,7 +3,10 @@
 
 import { parseFeed, fetchOccupancy, isChallengeResponse } from '../sources/uclSource.js';
 import { backoffMs } from '../poller.js';
-import { buildSnapshot } from '../store/history.js';
+import { buildSnapshot, insertSnapshots, readHistory } from '../store/history.js';
+import { historyWindowHours } from '../app.js';
+import { DatabaseSync } from 'node:sqlite';
+import { readFileSync, readdirSync } from 'node:fs';
 
 // Real plain-text output captured live from the UCL Indigo feed.
 const REAL_TEXT = `Current study space availability, UCL Library Services
@@ -135,6 +138,52 @@ assert(live.length === 15, `fetchOccupancy parses a normal 200 response (got ${l
 assert(backoffMs(0) === 0, 'no backoff after success');
 assert(backoffMs(1) === 5 * 60e3 && backoffMs(2) === 10 * 60e3, 'backoff doubles from 5 min');
 assert(backoffMs(50) === 6 * 3600e3, 'backoff caps at 6 h');
+
+// --- /api/history bounds ---
+assert(historyWindowHours(null, 'main') === 24, 'history defaults to 24 h');
+assert(historyWindowHours('abc', 'main') === 24 && historyWindowHours('-5', 'main') === 24, 'invalid/negative sinceHours -> 24 h');
+assert(historyWindowHours('6', 'main') === 6, 'smaller windows are kept');
+assert(historyWindowHours('99999', 'main') === 168, 'one library is capped at 7 days');
+assert(historyWindowHours('99999', undefined) === 24, 'all libraries are capped at 24 h');
+
+// readHistory against real SQLite (same SQL as D1) via a minimal D1-shaped adapter.
+const sqlite = new DatabaseSync(':memory:');
+for (const f of readdirSync('migrations').sort()) sqlite.exec(readFileSync(`migrations/${f}`, 'utf8'));
+const d1 = {
+  prepare: (sql) => {
+    const stmt = {
+      params: [],
+      bind: (...p) => ({ ...stmt, params: p }),
+    };
+    stmt.all = async function () { return { results: sqlite.prepare(sql).all(...this.params) }; };
+    stmt.first = async function () { return sqlite.prepare(sql).get(...this.params) ?? null; };
+    return stmt;
+  },
+  batch: async (stmts) => { for (const st of stmts) await st.all(); },
+};
+const testSnaps = [];
+for (let i = 0; i < 10; i++) {
+  testSnaps.push(buildSnapshot(r1, { source: 'ucl', ts: new Date(Date.UTC(2026, 10, 17, 12, i * 5)) }));
+}
+await insertSnapshots(d1, testSnaps); // 10 snapshots x 15 libraries
+
+const all = await readHistory(d1, {});
+assert(all.length === 10 && all.every((sn) => sn.libraries.length === 15) && all[0].ts < all[9].ts,
+  `readHistory returns complete snapshots oldest-first (got ${all.length})`);
+const capped = await readHistory(d1, { limit: 40 }); // 40 rows = 2 full + 1 partial snapshot
+assert(capped.length === 2 && capped.every((sn) => sn.libraries.length === 15) && capped[1].ts === all[9].ts,
+  `row limit keeps the newest complete snapshots and drops the partial one (got ${capped.map((sn) => sn.libraries.length)})`);
+const oneLib = await readHistory(d1, { libraryId: 'main', limit: 3 });
+assert(oneLib.length === 2 && oneLib.every((sn) => sn.libraries.length === 1 && sn.libraries[0].libraryId === 'main'),
+  `row limit works with libraryId (got ${oneLib.length})`);
+
+for (const [label, sql] of [
+  ['one library', "SELECT * FROM readings WHERE ts >= '2026' AND library_id = 'main' ORDER BY ts DESC, library_id DESC LIMIT 5000"],
+  ['all libraries', "SELECT * FROM readings WHERE ts >= '2026' ORDER BY ts DESC, library_id DESC LIMIT 5000"],
+]) {
+  const plan = sqlite.prepare(`EXPLAIN QUERY PLAN ${sql}`).all().map((r) => r.detail).join(' | ');
+  assert(/USING (COVERING )?INDEX/.test(plan) && !/TEMP B-TREE/.test(plan), `${label} history query uses an index, no sort (${plan})`);
+}
 
 console.log('\nParsed sample:');
 for (const r of r1.slice(0, 3)) {
