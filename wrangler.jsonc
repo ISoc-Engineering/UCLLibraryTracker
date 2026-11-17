@@ -22,7 +22,7 @@
     {
       "binding": "DB",
       "database_name": "ucl-library-tracker",
-      "database_id": "d9c06575-b6da-4e72-b21e-e8b50a79dc2e",
+      "database_id": "c15b04b1-eab4-4e8e-a2fa-26e64c629255",
       "migrations_dir": "migrations"
     }
   ],
