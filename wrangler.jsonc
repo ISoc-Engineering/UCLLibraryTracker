@@ -1,0 +1,71 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+
+  // ---------------------------------------------------------------------
+  // Production: the real app, live data straight from UCL.
+  //   npm run dev      (local)
+  //   npm run deploy   (Cloudflare)
+  // ---------------------------------------------------------------------
+  "name": "ucl-library-tracker",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-11-01",
+
+  // Static frontend. Requests that match a file in public/ are served directly
+  // (no Worker invocation); everything else (/api/*) falls through to the Worker.
+  "assets": {
+    "directory": "./public"
+  },
+
+  // Occupancy history. Create the database with `npx wrangler d1 create
+  // ucl-library-tracker` and paste the database_id it prints here (see README).
+  // The placeholder works for local `wrangler dev`, which uses a local SQLite file.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ucl-library-tracker",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Poll every 5 minutes (UCL's sensors update on roughly that cadence).
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+
+  // Non-secret settings. MAPBOX_TOKEN is a secret: `wrangler secret put` in
+  // production, .env locally.
+  "vars": {
+    "MAPBOX_STYLE": "mapbox://styles/mapbox/light-v11"
+  },
+
+  "observability": {
+    "enabled": true
+  },
+
+  "env": {
+    // -------------------------------------------------------------------
+    // Demo: same app with generated data and seeded history, for trying the
+    // UI without live data. Separate entry point (no demo code ships in
+    // production) and its own database (demo data never mixes with real
+    // history). Local only for now:
+    //   npm run dev:demo
+    // -------------------------------------------------------------------
+    "demo": {
+      "main": "src/demo/worker.js",
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "ucl-library-tracker-demo",
+          "database_id": "00000000-0000-0000-0000-00000000de30",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "vars": {
+        "MAPBOX_STYLE": "mapbox://styles/mapbox/light-v11",
+        // Hours of history the graph shows is 24, so 1 day is enough.
+        "SEED_DAYS": "1"
+      }
+    }
+  }
+}

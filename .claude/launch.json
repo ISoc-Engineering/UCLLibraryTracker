@@ -4,8 +4,14 @@
     {
       "name": "tracker",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["start"],
-      "port": 3000
+      "runtimeArgs": ["run", "dev", "--", "--test-scheduled"],
+      "port": 8787
+    },
+    {
+      "name": "tracker-demo",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:demo", "--", "--test-scheduled"],
+      "port": 8787
     }
   ]
 }

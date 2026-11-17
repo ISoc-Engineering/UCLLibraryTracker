@@ -1,67 +1,60 @@
-// Background poller: periodically fetches current occupancy from the active
-// data source, classifies it, and appends a snapshot to the history file.
+// One poll: fetch -> classify -> store in D1, plus the bookkeeping that
+// /api/status reports. Runs from the Cron Trigger (every 5 min); Workers keep
+// no memory between invocations, so all state lives in the D1 `meta` table.
 //
-// It keeps the most recent snapshot in memory so the API can serve /api/current
-// instantly without re-reading the file.
+// Backoff: after a failure (e.g. a Cloudflare challenge from UCL) we don't
+// retry on every cron tick. The wait doubles per consecutive failure, from
+// 5 minutes up to MAX_BACKOFF_MS, and resets on the first success.
 
-import { fetchCurrentOccupancy, activeSourceName } from './sources/index.js';
-import { buildSnapshot, appendSnapshot } from './store/history.js';
-import { settings } from './config/settings.js';
+import { buildSnapshot, insertSnapshots, getMeta, setMeta } from './store/history.js';
 
-let timer = null;
-let lastSnapshot = null;
-let lastError = null;
+const BASE_BACKOFF_MS = 5 * 60 * 1000;
+const MAX_BACKOFF_MS = 6 * 60 * 60 * 1000;
+// Cron ticks jitter by a few seconds; don't skip a tick for being 1s early.
+const TICK_TOLERANCE_MS = 30 * 1000;
 
-/**
- * Perform a single poll: fetch -> classify -> append -> cache.
- * Returns the snapshot, or throws on failure.
- */
-export async function pollOnce() {
-  const records = await fetchCurrentOccupancy();
-  const snapshot = buildSnapshot(records, { source: activeSourceName() });
-  await appendSnapshot(snapshot);
-  lastSnapshot = snapshot;
-  lastError = null;
-  return snapshot;
+export function backoffMs(consecutiveFailures) {
+  if (consecutiveFailures <= 0) return 0;
+  return Math.min(BASE_BACKOFF_MS * 2 ** (consecutiveFailures - 1), MAX_BACKOFF_MS);
 }
 
 /**
- * Start the recurring poller. Runs one poll immediately, then on an interval.
+ * Perform a single poll.
+ * @param {object} env     Worker env (needs env.DB)
+ * @param {object} source  data source (see src/app.js)
+ * @param {{now?: Date, force?: boolean}} opts  force ignores the backoff window
+ * @returns {Promise<{status:'ok', snapshot:object} | {status:'skipped', nextAttemptAt:string} | {status:'error', error:string}>}
  */
-export function startPolling() {
-  if (timer) return;
+export async function pollOnce(env, source, { now = new Date(), force = false } = {}) {
+  const meta = await getMeta(env.DB);
 
-  const run = async () => {
-    try {
-      const snap = await pollOnce();
-      console.log(
-        `[poller] ${snap.ts} source=${snap.source} libraries=${snap.libraries.length}`,
-      );
-    } catch (err) {
-      lastError = err;
-      console.error('[poller] poll failed:', err.message);
-    }
-  };
-
-  run(); // immediate first poll
-  timer = setInterval(run, settings.pollIntervalMs);
-  if (timer.unref) timer.unref();
-  console.log(
-    `[poller] started, interval=${settings.pollIntervalMs}ms source=${activeSourceName()}`,
-  );
-}
-
-export function stopPolling() {
-  if (timer) {
-    clearInterval(timer);
-    timer = null;
+  if (!force && meta.nextAttemptAt && Date.parse(meta.nextAttemptAt) - TICK_TOLERANCE_MS > now.getTime()) {
+    return { status: 'skipped', nextAttemptAt: meta.nextAttemptAt };
   }
-}
 
-export function getLastSnapshot() {
-  return lastSnapshot;
-}
-
-export function getLastError() {
-  return lastError ? lastError.message : null;
+  try {
+    const records = await source.fetchOccupancy();
+    const snapshot = buildSnapshot(records, { source: source.name, ts: now });
+    await insertSnapshots(env.DB, [snapshot]);
+    await setMeta(env.DB, {
+      lastPollAt: snapshot.ts,
+      lastError: null,
+      lastErrorKind: null,
+      lastErrorAt: null,
+      consecutiveFailures: 0,
+      nextAttemptAt: null,
+    });
+    return { status: 'ok', snapshot };
+  } catch (err) {
+    const failures = (meta.consecutiveFailures || 0) + 1;
+    const wait = backoffMs(failures);
+    await setMeta(env.DB, {
+      lastError: err.message,
+      lastErrorKind: err.isChallenge ? 'cloudflare-challenge' : 'error',
+      lastErrorAt: now.toISOString(),
+      consecutiveFailures: failures,
+      nextAttemptAt: new Date(now.getTime() + wait).toISOString(),
+    });
+    return { status: 'error', error: err.message };
+  }
 }

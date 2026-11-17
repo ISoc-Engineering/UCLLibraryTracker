@@ -1,79 +1,157 @@
-// In-process self-test: boots the Express app on an ephemeral port and hits
-// every API route via loopback fetch, printing a pass/fail summary. Avoids
-// relying on external curl (which the sandbox network policy may block).
+// End-to-end self-test: runs the real Workers under `wrangler dev` (local D1,
+// throwaway state dir) and checks both entry points:
+//
+//   demo        — seeds an empty DB, every API route works, the cron polls.
+//   production  — serves the app but has NO demo behaviour: an empty DB stays
+//                 empty (no seeding, no generated data). The cron is never
+//                 fired here, so the test makes no requests to UCL.
+//
+//   npm run test:e2e
 
-process.env.DATA_SOURCE = process.env.DATA_SOURCE || 'mock';
-process.env.POLL_ENABLED = 'false';
+import { spawn, execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createServer } from 'node:net';
 
-const { default: app } = await import('../server.js');
-
-const server = app.listen(0);
-await new Promise((r) => server.once('listening', r));
-const { port } = server.address();
-const base = `http://127.0.0.1:${port}`;
-
+const wrangler = join(process.cwd(), 'node_modules', '.bin', 'wrangler');
 let failures = 0;
-async function check(name, path, validate) {
+
+async function freePort() {
+  return new Promise((resolve) => {
+    const s = createServer().listen(0, '127.0.0.1', () => {
+      const { port } = s.address();
+      s.close(() => resolve(port));
+    });
+  });
+}
+
+function record(ok, name, detail = '') {
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` (${detail})` : ''}`);
+  if (!ok) failures++;
+}
+
+/** Start `wrangler dev` for an environment, run `fn(get)`, then tear down. */
+async function withWorker(label, envArgs, fn) {
+  console.log(`\n== ${label} ==`);
+  const persist = mkdtempSync(join(tmpdir(), 'ucl-tracker-test-'));
+  const childEnv = { ...process.env, CI: '1' };
+
+  execFileSync(wrangler, ['d1', 'migrations', 'apply', 'DB', '--local', '--persist-to', persist, ...envArgs], {
+    stdio: 'ignore',
+    env: childEnv,
+  });
+
+  const port = await freePort();
+  const dev = spawn(
+    wrangler,
+    ['dev', '--port', String(port), '--ip', '127.0.0.1', '--persist-to', persist,
+      '--test-scheduled', '--show-interactive-dev-session=false', ...envArgs],
+    { stdio: ['ignore', 'pipe', 'pipe'], env: childEnv },
+  );
+  let log = '';
+  dev.stdout.on('data', (d) => (log += d));
+  dev.stderr.on('data', (d) => (log += d));
+  const base = `http://127.0.0.1:${port}`;
+
   try {
-    const res = await fetch(base + path);
-    const body = await res.json();
-    const ok = res.ok && validate(body);
-    console.log(`${ok ? 'PASS' : 'FAIL'}  ${name} (${res.status})`);
-    if (!ok) {
-      failures++;
-      console.log('   body:', JSON.stringify(body).slice(0, 200));
+    let up = false;
+    for (let i = 0; i < 120 && !up; i++) {
+      try {
+        up = (await fetch(base + '/api/libraries')).ok;
+      } catch {
+        await new Promise((r) => setTimeout(r, 500));
+      }
     }
-    return body;
+    if (!up) {
+      record(false, 'wrangler dev started', log.slice(-2000));
+      return;
+    }
+
+    // get(path) -> { status, body }
+    const get = async (path) => {
+      const res = await fetch(base + path);
+      const type = res.headers.get('content-type') || '';
+      return { status: res.status, body: type.includes('json') ? await res.json() : await res.text() };
+    };
+    await fn(get, base);
   } catch (e) {
-    failures++;
-    console.log(`FAIL  ${name} — ${e.message}`);
-    return null;
+    record(false, `${label}: unexpected error`, e.message);
+  } finally {
+    dev.kill();
+    rmSync(persist, { recursive: true, force: true });
   }
 }
 
-await check('GET /api/status', '/api/status', (b) => b.ok === true && b.source === 'mock');
-await check(
-  'GET /api/libraries',
-  '/api/libraries',
-  (b) => Array.isArray(b.libraries) && b.libraries.length === 15 && b.thresholds.amberAt === 0.6,
-);
-const current = await check(
-  'GET /api/current',
-  '/api/current',
-  (b) =>
-    Array.isArray(b.libraries) &&
-    b.libraries.length === 15 &&
+async function check(get, name, path, validate, expectStatus = 200) {
+  const { status, body } = await get(path);
+  const ok = status === expectStatus && validate(body);
+  record(ok, name, String(status));
+  if (!ok) console.log('   body:', JSON.stringify(body).slice(0, 300));
+  return body;
+}
+
+async function checkStatic(get) {
+  for (const p of ['/', '/app.js', '/styles.css']) {
+    const { status } = await get(p);
+    record(status === 200, `GET ${p}`, String(status));
+  }
+}
+
+// ---- Demo ----
+await withWorker('demo (--env demo)', ['--env', 'demo'], async (get, base) => {
+  await check(get, 'GET /api/libraries', '/api/libraries', (b) =>
+    b.source === 'demo' && b.libraries.length === 15 && b.thresholds.amberAt === 0.6 && 'token' in b.mapbox,
+  );
+  // First /api/current on an empty DB seeds demo history and polls once.
+  const current = await check(get, 'GET /api/current (seeds empty DB)', '/api/current', (b) =>
+    b.source === 'demo' && b.libraries.length === 15 &&
     b.libraries.every((l) => ['green', 'amber', 'red', 'unknown'].includes(l.rag)),
-);
-await check(
-  'GET /api/history',
-  '/api/history?sinceHours=24',
-  (b) => typeof b.count === 'number' && Array.isArray(b.snapshots),
-);
-await check(
-  'GET /api/history?libraryId=main',
-  '/api/history?libraryId=main&sinceHours=24',
-  (b) => b.snapshots.every((s) => s.libraries.every((l) => l.libraryId === 'main')),
-);
+  );
+  await check(get, 'GET /api/history?sinceHours=24', '/api/history?sinceHours=24', (b) =>
+    b.count >= 90 && b.snapshots.every((s) => s.libraries.length === 15),
+  );
+  await check(get, 'GET /api/history?libraryId=main', '/api/history?libraryId=main&sinceHours=24', (b) =>
+    b.count >= 90 && b.snapshots.every((s) => s.libraries.length === 1 && s.libraries[0].libraryId === 'main'),
+  );
 
-// Static assets
-for (const p of ['/', '/app.js', '/styles.css']) {
-  try {
-    const res = await fetch(base + p);
-    const ok = res.ok;
-    console.log(`${ok ? 'PASS' : 'FAIL'}  GET ${p} (${res.status})`);
-    if (!ok) failures++;
-  } catch (e) {
-    failures++;
-    console.log(`FAIL  GET ${p} — ${e.message}`);
+  await check(get, 'GET /api/history (no params) -> 24 h, all libraries', '/api/history', (b) =>
+    b.sinceHours === 24 && b.count >= 90 && b.count <= 100,
+  );
+  await check(get, 'GET /api/history huge sinceHours is capped', '/api/history?libraryId=main&sinceHours=999999', (b) =>
+    b.sinceHours === 168,
+  );
+
+  const before = (await get('/api/status')).body;
+  await new Promise((r) => setTimeout(r, 1100)); // ensure a distinct timestamp
+  const cron = await fetch(base + '/__scheduled?cron=*/5+*+*+*+*');
+  record(cron.ok, 'cron trigger', String(cron.status));
+  await check(get, 'GET /api/status after cron', '/api/status', (b) =>
+    b.ok === true && b.source === 'demo' && b.lastError === null && b.lastPoll && b.lastPoll !== before.lastPoll,
+  );
+  await checkStatic(get);
+
+  if (current?.libraries) {
+    console.log('   sample:', JSON.stringify(current.libraries.find((l) => l.libraryId === 'main')));
   }
-}
+});
 
-if (current && current.libraries) {
-  const sample = current.libraries.find((l) => l.libraryId === 'main');
-  console.log('\nSample (Main Library):', JSON.stringify(sample));
-}
+// ---- Production ----
+await withWorker('production (default)', [], async (get) => {
+  await check(get, 'GET /api/libraries', '/api/libraries', (b) =>
+    b.source === 'ucl' && b.libraries.length === 15,
+  );
+  await check(get, 'GET /api/current on empty DB -> 503, no data invented', '/api/current', (b) =>
+    typeof b.error === 'string' && !b.libraries, 503,
+  );
+  await check(get, 'GET /api/history is empty (never seeded)', '/api/history?sinceHours=24', (b) =>
+    b.count === 0,
+  );
+  await check(get, 'GET /api/status', '/api/status', (b) =>
+    b.source === 'ucl' && /ucl\.ac\.uk/.test(b.sourceUrl) && b.lastPoll === null,
+  );
+  await checkStatic(get);
+});
 
-server.close();
 console.log(`\n${failures === 0 ? 'ALL PASSED ✅' : failures + ' FAILURE(S) ❌'}`);
 process.exit(failures === 0 ? 0 : 1);
