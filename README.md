@@ -10,6 +10,7 @@ See how full each UCL library is, at a glance, on a map.
   - 🟢 **Green** — plenty of space (under 60% full)
   - 🟠 **Amber** — filling up (60–85% full)
   - 🔴 **Red** — very busy (over 85% full)
+  - ⚫ **Closed** — UCL lists the library as closed right now
 - Find libraries **near you** — it can use your location to centre the map and
   sort libraries nearest-first.
 - Click a library to see how many desks are free, get **directions** to it, and

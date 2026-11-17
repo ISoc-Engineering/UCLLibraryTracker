@@ -47,43 +47,48 @@ export class ChallengeError extends Error {
  * or, for a closed library:
  *   <Library Name>
  *   Currently closed.
- * Closed libraries have no seat counts and are skipped.
  *
- * We work off the plain text content. The regex captures the free/total pair
- * and we take the library name from the text immediately preceding it. This is
- * resilient to the surrounding HTML tags because we strip tags first.
+ * Open libraries give { libraryId, name, occupied, total, free }.
+ * Closed libraries give { libraryId, name, closed: true } with null counts
+ * (the page doesn't say how many seats a closed library has).
+ *
+ * We work off the plain text content: strip tags, put each seat count / closed
+ * notice on its own line, then take the library name from the nearest line
+ * above it.
  */
 export function parseFeed(raw) {
-  // Strip tags to get at the visible text, normalise whitespace per line.
   const text = String(raw)
     .replace(/<[^>]+>/g, '\n') // tags -> line breaks
     .replace(/&amp;/g, '&')
     .replace(/&nbsp;/g, ' ')
     .replace(/\r/g, '')
-    // The live page splits "410 free seats" and "out of 647" across elements,
-    // so join a seat count spread over several lines back into one line.
-    .replace(/(\d+)\s+free\s+seats?\s+out\s+of\s+(\d+)/gi, '\n$1 free seats out of $2\n');
+    // The live page splits "410 free seats" / "out of 647" and
+    // "Currently" / "closed" across elements; join each back into one line.
+    .replace(/(\d+)\s+free\s+seats?\s+out\s+of\s+(\d+)/gi, '\n$1 free seats out of $2\n')
+    .replace(/currently\s+closed\.?/gi, '\nCurrently closed\n');
 
   const lines = text
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean);
 
-  const records = [];
   const seatRe = /^(\d+)\s+free\s+seats?\s+out\s+of\s+(\d+)/i;
+  const closedRe = /^currently closed$/i;
+  const isStatusLine = (l) => seatRe.test(l) || closedRe.test(l);
+
+  const records = [];
+  const seen = new Set();
 
   for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(seatRe);
-    if (!m) continue;
+    const seats = lines[i].match(seatRe);
+    const closed = closedRe.test(lines[i]);
+    if (!seats && !closed) continue;
 
-    const free = Number.parseInt(m[1], 10);
-    const total = Number.parseInt(m[2], 10);
-    if (!Number.isFinite(free) || !Number.isFinite(total) || total <= 0) continue;
-
-    // The library name is the nearest non-seat line above this one.
+    // The library name is the nearest non-status line above this one
+    // (length > 1 skips stray punctuation such as a lone ".").
     let name = null;
     for (let j = i - 1; j >= 0; j--) {
-      if (!seatRe.test(lines[j]) && lines[j].length > 1) {
+      if (!isStatusLine(lines[j]) && lines[j].length > 1) {
         name = lines[j];
         break;
       }
@@ -91,15 +96,17 @@ export function parseFeed(raw) {
     if (!name) continue;
 
     const lib = matchLibrary(name);
-    if (!lib) continue; // skip anything we don't have metadata for
+    if (!lib || seen.has(lib.id)) continue; // unknown library, or a duplicate
 
-    records.push({
-      libraryId: lib.id,
-      name: lib.name,
-      occupied: total - free,
-      total,
-      free,
-    });
+    if (closed) {
+      records.push({ libraryId: lib.id, name: lib.name, closed: true, occupied: null, total: null, free: null });
+    } else {
+      const free = Number.parseInt(seats[1], 10);
+      const total = Number.parseInt(seats[2], 10);
+      if (!Number.isFinite(free) || !Number.isFinite(total) || total <= 0) continue;
+      records.push({ libraryId: lib.id, name: lib.name, occupied: total - free, total, free });
+    }
+    seen.add(lib.id);
   }
 
   return records;

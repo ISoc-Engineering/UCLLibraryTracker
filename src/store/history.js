@@ -8,6 +8,9 @@
 //     { "libraryId": "main", "name": "Main Library",
 //       "occupied": 350, "total": 624, "free": 274,
 //       "occupancy": 0.561, "rag": "green" },
+//     { "libraryId": "bartlett", "name": "Bartlett Library",
+//       "occupied": null, "total": null, "free": null,
+//       "occupancy": null, "rag": "closed" },
 //     ...
 //   ]
 // }
@@ -18,9 +21,22 @@ import { classifyRAG } from '../config/settings.js';
 
 /**
  * Build a normalised snapshot (adds occupancy fraction + RAG) from raw records.
+ * A closed library ({ closed: true }) gets null counts and rag 'closed'.
  */
 export function buildSnapshot(records, { source, ts = new Date() } = {}) {
   const libraries = records.map((r) => {
+    if (r.closed) {
+      // Closed: no seat counts, and 'closed' instead of an R/A/G colour.
+      return {
+        libraryId: r.libraryId,
+        name: r.name,
+        occupied: null,
+        total: null,
+        free: null,
+        occupancy: null,
+        rag: 'closed',
+      };
+    }
     const occupancy = r.total > 0 ? r.occupied / r.total : null;
     return {
       libraryId: r.libraryId,

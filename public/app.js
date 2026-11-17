@@ -5,7 +5,13 @@
 // everything handed to Mapbox goes through toLngLat().
 
 const UCL_CENTER = [51.5246, -0.1339];
-const RAG_COLORS = { green: '#2e9e4f', amber: '#e8a33d', red: '#d64545', unknown: '#9aa0a6' };
+const RAG_COLORS = {
+  green: '#2e9e4f',
+  amber: '#e8a33d',
+  red: '#d64545',
+  closed: '#5f6368', // UCL says the library is closed right now
+  unknown: '#9aa0a6', // no reading for this library
+};
 
 let map;
 let markers = {}; // libraryId -> mapboxgl.Marker (with an attached Popup)
@@ -26,7 +32,7 @@ const toLngLat = ([lat, lng]) => [lng, lat];
 // it with "feature state", which the building layer's colour then reads.
 
 const BUILDING_ZOOM = 15; // Mapbox only includes building outlines from here
-const libRag = {}; // libraryId -> 'green' | 'amber' | 'red' | 'unknown'
+const libRag = {}; // libraryId -> 'green' | 'amber' | 'red' | 'closed' | 'unknown'
 const libBuildingIds = {}; // libraryId -> Set of Mapbox building feature ids
 const buildingToLib = new Map(); // building feature id -> libraryId
 
@@ -117,6 +123,7 @@ function styleLibraryBuildings() {
           'green', RAG_COLORS.green,
           'amber', RAG_COLORS.amber,
           'red', RAG_COLORS.red,
+          'closed', RAG_COLORS.closed,
           RAG_COLORS.unknown,
         ],
         'fill-opacity': tagged(0.75),
@@ -135,6 +142,7 @@ function styleLibraryBuildings() {
           'green', '#1d6b35',
           'amber', '#a86f1a',
           'red', '#962d2d',
+          'closed', '#3c4043',
           '#6b7075',
         ],
         'line-width': 1.5,
@@ -225,7 +233,9 @@ function directionsUrl(coords, name) {
 function popupHtml(lib, rec) {
   const pct = rec && rec.occupancy != null ? Math.round(rec.occupancy * 100) : null;
   const statLine =
-    rec && rec.total
+    rec && rec.rag === 'closed'
+      ? `<p class="popup-stat muted">Closed right now</p>`
+      : rec && rec.total
       ? `<p class="popup-stat">${rec.free} free of ${rec.total} desks${
           pct != null ? ` — <strong>${pct}% full</strong>` : ''
         }</p>`
@@ -238,6 +248,12 @@ function popupHtml(lib, rec) {
       <a href="#" data-chart="${lib.id}">Busyness graph</a>
     </div>
   `;
+}
+
+// Sidebar order without a location: busiest first, then closed, then no data.
+function sortKey(rec) {
+  if (rec && rec.occupancy != null) return rec.occupancy;
+  return rec && rec.rag === 'closed' ? -1 : -2;
 }
 
 function render(current, thresholds) {
@@ -270,18 +286,18 @@ function render(current, thresholds) {
   // Sort by nearest when we know the user's location, otherwise busiest first.
   rows.sort((a, b) => {
     if (userLatLng) return a.dist - b.dist;
-    const oa = a.rec && a.rec.occupancy != null ? a.rec.occupancy : -1;
-    const ob = b.rec && b.rec.occupancy != null ? b.rec.occupancy : -1;
-    return ob - oa;
+    return sortKey(b.rec) - sortKey(a.rec);
   });
 
   rows.forEach(({ lib, rec, dist }, index) => {
     const rag = rec ? rec.rag || ragOf(rec.occupancy, thresholds) : 'unknown';
     const pct = rec && rec.occupancy != null ? Math.round(rec.occupancy * 100) : null;
 
-    const occText = rec && rec.total
-      ? `${rec.free} free / ${rec.total}${pct != null ? ` · ${pct}% full` : ''}`
-      : 'No live data';
+    const occText = rec && rec.rag === 'closed'
+      ? 'Closed'
+      : rec && rec.total
+        ? `${rec.free} free / ${rec.total}${pct != null ? ` · ${pct}% full` : ''}`
+        : 'No live data';
     const distText = dist != null ? ` · ${formatDistance(dist)}` : '';
     const nearestBadge = userLatLng && index === 0 ? ' <span class="nearest-badge">Nearest</span>' : '';
 

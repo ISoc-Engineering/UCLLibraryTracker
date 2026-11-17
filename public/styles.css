@@ -2,6 +2,7 @@
   --green: #2e9e4f;
   --amber: #e8a33d;
   --red: #d64545;
+  --closed: #5f6368;
   --unknown: #9aa0a6;
   --bg: #f6f7f9;
   --panel: #ffffff;
@@ -44,6 +45,7 @@ header h1 { font-size: 1.15rem; margin: 0; }
 .chip.green { background: var(--green); }
 .chip.amber { background: var(--amber); }
 .chip.red { background: var(--red); }
+.chip.closed { background: var(--closed); }
 
 .locate-btn {
   font-size: 0.8rem;
@@ -112,6 +114,7 @@ main {
 .dot.green { background: var(--green); }
 .dot.amber { background: var(--amber); }
 .dot.red { background: var(--red); }
+.dot.closed { background: var(--closed); }
 .dot.unknown { background: var(--unknown); }
 
 .lib-meta { flex: 1; min-width: 0; }

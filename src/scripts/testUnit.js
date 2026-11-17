@@ -3,6 +3,7 @@
 
 import { parseFeed, fetchOccupancy, isChallengeResponse } from '../sources/uclSource.js';
 import { backoffMs } from '../poller.js';
+import { buildSnapshot } from '../store/history.js';
 
 // Real plain-text output captured live from the UCL Indigo feed.
 const REAL_TEXT = `Current study space availability, UCL Library Services
@@ -83,7 +84,7 @@ assert(htmlMain && htmlMain.total === 624 && htmlMain.free === 284,
   `HTML variant Main Library parsed correctly (got ${JSON.stringify(htmlMain)})`);
 
 // --- Live page format as of Nov 2026 (modelled on a real Worker fetch, overnight):
-// seat counts split across elements, closed libraries say "Currently closed".
+// seat counts and "Currently closed" split across elements.
 const LIVE_HTML_2026 = `<h2>Current space availability</h2>
 <p><strong>Bartlett Library</strong><br>Currently <strong>closed</strong>.</p>
 <p><strong>Main Library</strong><br>Currently <strong>closed</strong>.</p>
@@ -93,8 +94,21 @@ const LIVE_HTML_2026 = `<h2>Current space availability</h2>
 <p><strong>UCL East Library</strong><br>Currently <strong>closed</strong>.</p>`;
 const r3 = parseFeed(LIVE_HTML_2026);
 const sc = r3.find((r) => r.libraryId === 'student-centre');
-assert(r3.length === 1 && sc && sc.free === 410 && sc.total === 647,
-  `2026 format: split seat count parsed, closed libraries skipped (got ${JSON.stringify(r3)})`);
+assert(sc && sc.free === 410 && sc.total === 647 && !sc.closed,
+  `2026 format: split seat count parsed (got ${JSON.stringify(sc)})`);
+const closedIds = r3.filter((r) => r.closed).map((r) => r.libraryId).sort();
+assert(r3.length === 5 && closedIds.join() === 'bartlett,main,science,ucl-east',
+  `2026 format: "Currently closed" libraries recorded as closed (got ${closedIds.join()})`);
+assert(r3.filter((r) => r.closed).every((r) => r.total === null && r.free === null && r.occupied === null),
+  'closed libraries have null seat counts');
+
+const snap = buildSnapshot(r3, { source: 'ucl', ts: new Date('2026-11-17T22:00:00Z') });
+const snapMain = snap.libraries.find((l) => l.libraryId === 'main');
+const snapSc = snap.libraries.find((l) => l.libraryId === 'student-centre');
+assert(snapMain.rag === 'closed' && snapMain.occupancy === null,
+  `buildSnapshot marks closed libraries rag=closed (got ${JSON.stringify(snapMain)})`);
+assert(snapSc.rag === 'green' && snapSc.occupancy === 0.3663,
+  `buildSnapshot still classifies open libraries (got ${JSON.stringify(snapSc)})`);
 
 // --- Cloudflare challenge detection (no network: fake fetch) ---
 const CHALLENGE_HTML = '<!DOCTYPE html><html><head><title>Just a moment...</title></head><body></body></html>';
