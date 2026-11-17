@@ -6,7 +6,9 @@
   //   npm run dev      (local)
   //   npm run deploy   (Cloudflare)
   // ---------------------------------------------------------------------
-  "name": "ucl-library-tracker",
+  // Must match the Worker's name in the Cloudflare dashboard, or Workers
+  // Builds (deploy from GitHub) fails.
+  "name": "ucllibrarytracker",
   "main": "src/worker.js",
   "compatibility_date": "2026-11-01",
 
