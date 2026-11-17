@@ -1,4 +1,4 @@
-// One poll: fetch -> parse/classify -> store in D1, plus the bookkeeping that
+// One poll: fetch -> classify -> store in D1, plus the bookkeeping that
 // /api/status reports. Runs from the Cron Trigger (every 5 min); Workers keep
 // no memory between invocations, so all state lives in the D1 `meta` table.
 //
@@ -6,8 +6,6 @@
 // retry on every cron tick. The wait doubles per consecutive failure, from
 // 5 minutes up to MAX_BACKOFF_MS, and resets on the first success.
 
-import { getSettings } from './config/settings.js';
-import { fetchCurrentOccupancy } from './sources/index.js';
 import { buildSnapshot, insertSnapshots, getMeta, setMeta } from './store/history.js';
 
 const BASE_BACKOFF_MS = 5 * 60 * 1000;
@@ -22,12 +20,12 @@ export function backoffMs(consecutiveFailures) {
 
 /**
  * Perform a single poll.
- * @param {object} env  Worker env (needs env.DB)
+ * @param {object} env     Worker env (needs env.DB)
+ * @param {object} source  data source (see src/app.js)
  * @param {{now?: Date, force?: boolean}} opts  force ignores the backoff window
  * @returns {Promise<{status:'ok', snapshot:object} | {status:'skipped', nextAttemptAt:string} | {status:'error', error:string}>}
  */
-export async function pollOnce(env, { now = new Date(), force = false } = {}) {
-  const settings = getSettings(env);
+export async function pollOnce(env, source, { now = new Date(), force = false } = {}) {
   const meta = await getMeta(env.DB);
 
   if (!force && meta.nextAttemptAt && Date.parse(meta.nextAttemptAt) - TICK_TOLERANCE_MS > now.getTime()) {
@@ -35,8 +33,8 @@ export async function pollOnce(env, { now = new Date(), force = false } = {}) {
   }
 
   try {
-    const records = await fetchCurrentOccupancy(settings);
-    const snapshot = buildSnapshot(records, { source: settings.dataSource, ts: now });
+    const records = await source.fetchOccupancy();
+    const snapshot = buildSnapshot(records, { source: source.name, ts: now });
     await insertSnapshots(env.DB, [snapshot]);
     await setMeta(env.DB, {
       lastPollAt: snapshot.ts,

@@ -66,8 +66,17 @@ paste your token (starts with `pk.`) from
 
 ### 5. Start it
 
+There are two ways to run it:
+
+| Command | What you get |
+|---|---|
+| `npm run dev:demo` | **Demo**: generated occupancy data and a pre-filled busyness graph. Use this to try the app or work on the UI. |
+| `npm run dev` | **The real app**: live data from UCL. It starts empty and only gets data when the poller runs (see below). |
+
+For a first look, run the demo:
+
 ```bash
-npm run dev
+npm run dev:demo
 ```
 
 The first time, this creates a local database (if asked to confirm the
@@ -81,14 +90,16 @@ Ready on http://localhost:8787
 
 Go to **http://localhost:8787**
 
-That's it. It runs on **demo data** right away, so the map, the R/A/G markers,
-the "find libraries near me" button, and a pre-populated busyness graph all work
-immediately. To stop the app, go back to the terminal and press **Ctrl + C**.
+In the demo, the map, the R/A/G markers, the "find libraries near me" button,
+and the busyness graph all work immediately. To stop the app, go back to the
+terminal and press **Ctrl + C**.
 
 To run it again later, you only need steps 5–6.
 
-> **Testing the 5-minute poller locally:** run `npm run dev -- --test-scheduled`
-> and open http://localhost:8787/__scheduled to fire the cron once.
+> **Running the poller locally:** the 5-minute cron doesn't fire on its own in
+> local dev. Add `-- --test-scheduled` (e.g. `npm run dev -- --test-scheduled`)
+> and open http://localhost:8787/__scheduled to run it once. With `npm run dev`
+> that makes one real request to UCL.
 
 > **Windows PowerShell note:** if `npm install` fails with
 > *"running scripts is disabled on this system"*, run this once in PowerShell,
@@ -97,8 +108,6 @@ To run it again later, you only need steps 5–6.
 > Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 > ```
 
-> **Want real live occupancy instead of demo data?** See
-> [Live data from UCL](#live-data-from-ucl) below.
 
 ### Tests
 
@@ -106,22 +115,37 @@ To run it again later, you only need steps 5–6.
 npm test
 ```
 
-This runs the parser/unit tests and then an end-to-end test that starts the
-Worker under `wrangler dev` (with a throwaway database), calls every API route,
-and fires the cron once.
+This runs the parser/unit tests, then an end-to-end test that starts both the
+demo and the real app under `wrangler dev` (each with a throwaway database). It
+checks every API route in the demo, fires its cron once, and checks that the
+real app never invents or seeds data. The tests make no requests to UCL.
 
 ## How it works
 
-It's a single [Cloudflare Worker](https://developers.cloudflare.com/workers/):
+It's a [Cloudflare Worker](https://developers.cloudflare.com/workers/):
 
 - **Static site**: `public/` is served as Workers static assets.
-- **API**: `src/worker.js` answers `/api/libraries`, `/api/current`,
+- **API**: `src/app.js` answers `/api/libraries`, `/api/current`,
   `/api/history?libraryId=&sinceHours=` and `/api/status`.
 - **Poller**: a Cron Trigger runs every 5 minutes, fetches occupancy, classifies
   each library R/A/G, and stores the snapshot in a
   [D1](https://developers.cloudflare.com/d1/) database (`migrations/`).
-- **Demo mode** (`DATA_SOURCE=mock`, the default): an empty database is seeded
-  with a few days of realistic demo history, so the graph works straight away.
+
+The app is built once (`createApp(source)` in `src/app.js`) and given its data
+source by one of two entry points:
+
+| | Real app | Demo |
+|---|---|---|
+| Entry point | `src/worker.js` | `src/demo/worker.js` |
+| Data | Live, from UCL ([below](#live-data-from-ucl)) | Generated (`src/demo/mockSource.js`) |
+| Empty database | Stays empty until the cron gets real data | Seeded with a day of history (`src/demo/seed.js`) |
+| Database | `ucl-library-tracker` | `ucl-library-tracker-demo` (separate) |
+| Run locally | `npm run dev` | `npm run dev:demo` |
+| Deployed | `npm run deploy` | Not deployed |
+
+All demo code lives in `src/demo/` and isn't included in the deployed Worker.
+Demo data can't reach the real app's history, because the demo has its own
+database.
 
 ## Put it online (Cloudflare)
 
@@ -165,19 +189,23 @@ You need a free Cloudflare account. All commands run from the project folder.
    Deploy again any time with `npm run deploy`. Watch logs with
    `npx wrangler tail`.
 
-Unlike the old Render free tier, a Worker doesn't sleep, and history in D1
-survives redeploys. The free plan easily covers polling every 5 minutes.
+This deploys the **real app** only. Unlike the old Render free tier, a Worker
+doesn't sleep, and history in D1 survives redeploys. The free plan easily
+covers polling every 5 minutes.
+
+> **Deploying the demo later** would need its own database
+> (`npx wrangler d1 create ucl-library-tracker-demo`, then paste its id under
+> `env.demo` in `wrangler.jsonc`) and `npx wrangler deploy --env demo`.
+> Generating a day of demo history is close to the free plan's 10 ms CPU limit
+> per run, so check `npx wrangler tail --env demo` after the first deploy.
 
 ## Live data from UCL
 
 The only source of occupancy is UCL's own seat-availability page:
 <https://www.ucl.ac.uk/library/forms/indigo-seat-availability.php?loc=all>.
-The app fetches it **directly from UCL**, with an honest `User-Agent`. It does
-not use third-party scraping services or other students' APIs, and it does not
-try to get round UCL's Cloudflare bot protection.
-
-To switch to live data, set `"DATA_SOURCE": "scrape"` in `wrangler.jsonc`
-(`"vars"`) and deploy. Demo seeding switches off automatically in live mode.
+The real app fetches it **directly from UCL**, with an honest `User-Agent`. It
+does not use third-party scraping services or other students' APIs, and it
+does not try to get round UCL's Cloudflare bot protection.
 
 **If UCL's bot protection blocks the Worker**, the poller records a clear error
 and backs off (it waits 5 min, then 10, 20, … up to 6 hours between attempts).

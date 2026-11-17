@@ -138,3 +138,10 @@ export async function fetchOccupancy({ fetchImpl = fetch } = {}) {
 }
 
 export { FEED_URL };
+
+/** The production data source plugged into createApp() (see src/app.js). */
+export const uclSource = {
+  name: 'ucl',
+  url: FEED_URL,
+  fetchOccupancy: () => fetchOccupancy(),
+};

@@ -1,7 +1,7 @@
 // Verifies parseFeed(), challenge detection and the poll backoff. parseFeed is checked against the real feed output (captured live) and against
 // a tag-wrapped HTML variant, to prove the parser is robust.
 
-import { parseFeed, fetchOccupancy, isChallengeResponse } from '../sources/scrapeSource.js';
+import { parseFeed, fetchOccupancy, isChallengeResponse } from '../sources/uclSource.js';
 import { backoffMs } from '../poller.js';
 
 // Real plain-text output captured live from the UCL Indigo feed.

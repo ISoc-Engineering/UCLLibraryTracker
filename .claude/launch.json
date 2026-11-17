@@ -4,7 +4,7 @@
     {
       "name": "tracker",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--", "--test-scheduled"],
+      "runtimeArgs": ["run", "dev:demo", "--", "--test-scheduled"],
       "port": 8787
     }
   ]

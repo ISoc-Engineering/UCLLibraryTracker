@@ -133,10 +133,17 @@ export async function latestSnapshot(db) {
   return toSnapshots(results)[0] || null;
 }
 
-/** Number of stored snapshots (distinct timestamps). */
-export async function countSnapshots(db) {
-  const row = await db.prepare('SELECT COUNT(DISTINCT ts) AS n FROM readings').first();
-  return row ? row.n : 0;
+/**
+ * True if at least `n` snapshots (distinct timestamps) are stored. Bounded
+ * cost: D1 bills rows *scanned*, and the LIMIT stops the scan after `n`
+ * distinct timestamps instead of walking the whole table.
+ */
+export async function hasAtLeastSnapshots(db, n) {
+  const row = await db
+    .prepare('SELECT COUNT(*) AS n FROM (SELECT DISTINCT ts FROM readings LIMIT ?)')
+    .bind(n)
+    .first();
+  return (row ? row.n : 0) >= n;
 }
 
 // ---- Poller state (key/value) ----

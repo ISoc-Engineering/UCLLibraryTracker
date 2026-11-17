@@ -1,5 +1,11 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
+
+  // ---------------------------------------------------------------------
+  // Production: the real app, live data straight from UCL.
+  //   npm run dev      (local)
+  //   npm run deploy   (Cloudflare)
+  // ---------------------------------------------------------------------
   "name": "ucl-library-tracker",
   "main": "src/worker.js",
   "compatibility_date": "2026-11-01",
@@ -27,18 +33,39 @@
     "crons": ["*/5 * * * *"]
   },
 
-  // Non-secret settings. MAPBOX_TOKEN is set with `wrangler secret put` in
-  // production and read from .env / .dev.vars locally.
+  // Non-secret settings. MAPBOX_TOKEN is a secret: `wrangler secret put` in
+  // production, .env locally.
   "vars": {
-    // "mock" = demo data (default), "scrape" = live UCL feed.
-    "DATA_SOURCE": "mock",
-    "MAPBOX_STYLE": "mapbox://styles/mapbox/streets-v12",
-    // Seed a few days of demo history when the DB is empty (mock mode only).
-    "SEED_DEMO_HISTORY": "true",
-    "SEED_DAYS": "3"
+    "MAPBOX_STYLE": "mapbox://styles/mapbox/streets-v12"
   },
 
   "observability": {
     "enabled": true
+  },
+
+  "env": {
+    // -------------------------------------------------------------------
+    // Demo: same app with generated data and seeded history, for trying the
+    // UI without live data. Separate entry point (no demo code ships in
+    // production) and its own database (demo data never mixes with real
+    // history). Local only for now:
+    //   npm run dev:demo
+    // -------------------------------------------------------------------
+    "demo": {
+      "main": "src/demo/worker.js",
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "ucl-library-tracker-demo",
+          "database_id": "00000000-0000-0000-0000-00000000de30",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "vars": {
+        "MAPBOX_STYLE": "mapbox://styles/mapbox/streets-v12",
+        // Hours of history the graph shows is 24, so 1 day is enough.
+        "SEED_DAYS": "1"
+      }
+    }
   }
 }

@@ -1,4 +1,4 @@
-// Mock data source for demos and development (no live UCL data needed).
+// Mock data source for the demo (src/demo/worker.js). Not used in production.
 //
 // It is seeded with a REAL snapshot of total desk counts captured from the UCL
 // Indigo feed, then models a realistic daily "busyness curve" so that polling
@@ -27,6 +27,13 @@ const SEED_TOTALS = {
   'Student Centre': 647,
   'UCL East Library': 156,
 };
+
+// Resolve the labels above to library metadata ONCE. matchLibrary() is built
+// for messy live labels (regex normalisation over every alias) and is far too
+// slow to call per record when seeding thousands of snapshots.
+const MOCK_LIBRARIES = Object.entries(SEED_TOTALS)
+  .map(([label, total]) => ({ lib: matchLibrary(label), total }))
+  .filter((x) => x.lib);
 
 // Deterministic pseudo-random in [0,1) from a seed, so each library keeps a
 // stable "personality" rather than flickering randomly every poll.
@@ -84,9 +91,7 @@ export async function fetchOccupancy(now = new Date()) {
   const records = [];
   let seedCounter = 1;
 
-  for (const [label, total] of Object.entries(SEED_TOTALS)) {
-    const lib = matchLibrary(label);
-    if (!lib) continue;
+  for (const { lib, total } of MOCK_LIBRARIES) {
 
     // Per-library personality: some libraries run busier than others.
     const personality = 0.75 + seededRand(seedCounter++) * 0.5; // 0.75..1.25
