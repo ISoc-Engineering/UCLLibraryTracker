@@ -13,7 +13,7 @@ export function getSettings(env = {}) {
     mapboxToken: env.MAPBOX_TOKEN || '',
 
     // Mapbox map style, e.g. mapbox://styles/mapbox/light-v11.
-    mapboxStyle: env.MAPBOX_STYLE || 'mapbox://styles/mapbox/streets-v12',
+    mapboxStyle: env.MAPBOX_STYLE || 'mapbox://styles/mapbox/light-v11',
 
     // Cron cadence, reported by /api/status (the actual schedule lives in
     // wrangler.jsonc "triggers").

@@ -36,7 +36,7 @@
   // Non-secret settings. MAPBOX_TOKEN is a secret: `wrangler secret put` in
   // production, .env locally.
   "vars": {
-    "MAPBOX_STYLE": "mapbox://styles/mapbox/streets-v12"
+    "MAPBOX_STYLE": "mapbox://styles/mapbox/light-v11"
   },
 
   "observability": {
@@ -62,7 +62,7 @@
         }
       ],
       "vars": {
-        "MAPBOX_STYLE": "mapbox://styles/mapbox/streets-v12",
+        "MAPBOX_STYLE": "mapbox://styles/mapbox/light-v11",
         // Hours of history the graph shows is 24, so 1 day is enough.
         "SEED_DAYS": "1"
       }
