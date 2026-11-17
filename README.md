@@ -186,7 +186,7 @@ You need a free Cloudflare account. All commands run from the project folder.
    npm run deploy
    ```
 
-   Wrangler prints your public URL (`https://ucl-library-tracker.<you>.workers.dev`).
+   Wrangler prints your public URL (`https://ucllibrarytracker.<you>.workers.dev`).
    Deploy again any time with `npm run deploy`. Watch logs with
    `npx wrangler tail`.
 

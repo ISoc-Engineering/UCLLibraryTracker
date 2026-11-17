@@ -6,7 +6,9 @@
   //   npm run dev      (local)
   //   npm run deploy   (Cloudflare)
   // ---------------------------------------------------------------------
-  "name": "ucl-library-tracker",
+  // Must match the Worker's name in the Cloudflare dashboard, or Workers
+  // Builds (deploy from GitHub) fails.
+  "name": "ucllibrarytracker",
   "main": "src/worker.js",
   "compatibility_date": "2026-11-01",
 
@@ -16,14 +18,13 @@
     "directory": "./public"
   },
 
-  // Occupancy history. Create the database with `npx wrangler d1 create
-  // ucl-library-tracker` and paste the database_id it prints here (see README).
-  // The placeholder works for local `wrangler dev`, which uses a local SQLite file.
+  // Occupancy history (D1 database "ucl-library-tracker", region WEUR).
+  // Local `wrangler dev` uses a local SQLite copy, not this database.
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "ucl-library-tracker",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "c15b04b1-eab4-4e8e-a2fa-26e64c629255",
       "migrations_dir": "migrations"
     }
   ],
